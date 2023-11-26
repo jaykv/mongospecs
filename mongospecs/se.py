@@ -2,12 +2,13 @@ from typing import Any
 from datetime import date
 from bson import ObjectId
 import msgspec
+import attrs
 
 __all__ = ["MongoEncoder", "MongoDecoder"]
 
 
 def mongo_enc_hook(obj: Any) -> Any:
-    if obj is msgspec.UNSET:
+    if obj is msgspec.UNSET or obj is attrs.NOTHING:
         return None
     elif type(obj) == date:
         return str(obj)

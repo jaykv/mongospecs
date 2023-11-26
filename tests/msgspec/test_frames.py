@@ -773,7 +773,7 @@ def test_flattern_projection():
     assert projection == {"name": True, "inventory.gold": True, "inventory.secret_draw.gold": True}
 
 
-def test_with_options():
+def test_with_options(mongo_client):
     """Flattern projection"""
 
     collection = Dragon.get_collection()

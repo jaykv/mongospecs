@@ -1,6 +1,6 @@
 from bson import ObjectId
 from mongospecs import Q, Nor, Or, SortBy, Not, In, NotIn, Size, Type, ElemMatch, And, All, Exists
-from mongospecs.utils import to_refs
+from mongospecs.base import to_refs
 from mongospecs import Spec
 
 

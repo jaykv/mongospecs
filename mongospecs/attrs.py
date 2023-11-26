@@ -7,17 +7,17 @@ import attrs
 from .empty import Empty, EmptyObject
 import msgspec
 from typing_extensions import Self
-from typing import Callable, ClassVar, Any, Generator, Mapping, Optional, Union, Sequence
+from typing import Callable, Any, Generator, Mapping, Optional, Union, Sequence
 from bson import ObjectId
-from pymongo import MongoClient, UpdateOne
+from pymongo import UpdateOne
 from pymongo.database import Database
 from pymongo.collection import Collection
 from blinker import signal
 
-from .utils import to_refs
+from .base import SpecBase, SubSpecBase, to_refs
 from .query import Condition, Group
-
-from .se import MongoEncoder, mongo_dec_hook, mongo_enc_hook
+from .se import MongoEncoder, mongo_dec_hook
+from datetime import date, datetime
 
 __all__ = ["Spec", "SubSpec"]
 
@@ -27,15 +27,19 @@ RawDocuments = Sequence[dict[str, Any]]
 SpecsOrRawDocuments = Union[Specs, RawDocuments]
 
 
-@attrs.define(kw_only=True)
-class Spec:
-    _client: ClassVar[Optional[MongoClient]] = None
-    _db: ClassVar[Optional[Database]] = None
-    _collection: ClassVar[Optional[str]] = None
-    _collection_context: ClassVar[Optional[Collection]] = None
-    _default_projection: ClassVar[dict[str, Any]] = {}
+def attrs_serializer(inst: type, field: attrs.Attribute, value: Any) -> Any:
+    if type(value) == date:
+        return str(value)
+    elif isinstance(value, ObjectId):
+        return str(value)
+    elif isinstance(value, datetime):
+        return datetime.isoformat(value)
+    return value
 
-    _id: Union[EmptyObject, ObjectId] = attrs.field(default=Empty)
+
+@attrs.define(kw_only=True)
+class Spec(SpecBase):
+    _id: Union[EmptyObject, ObjectId] = attrs.field(default=Empty, alias="_id", repr=True)
 
     def get(self, name, default=None):  # -> Any:
         return self.to_dict().get(name, default)
@@ -553,7 +557,7 @@ class Spec:
 
         # If `projection` is empty return a full projection based on `_fields`
         if not projection:
-            return {f: True for f in attrs.fields(cls)}, {}, {}  # type: ignore[misc]
+            return {f.name: True for f in attrs.fields(cls)}, {}, {}  # type: ignore[misc]
 
         # Flatten the projection
         flat_projection = {}
@@ -615,7 +619,7 @@ class Spec:
         # If only references and sub-frames where specified in the projection
         # then return a full projection based on `_fields`.
         if inclusive:
-            flat_projection = {f: True for f in attrs.fields(cls)}  # type: ignore[misc]
+            flat_projection = {f.name: True for f in attrs.fields(cls)}  # type: ignore[misc]
 
         return flat_projection, references, subs
 
@@ -680,10 +684,12 @@ class Spec:
         return msgspec.json.decode(data, type=self.__class__, dec_hook=mongo_dec_hook)
 
     def to_json_type(self) -> Any:
-        return msgspec.to_builtins(self, enc_hook=mongo_enc_hook)
+        return attrs.asdict(
+            self, filter=lambda attr, value: value is not attrs.NOTHING, value_serializer=attrs_serializer
+        )
 
     def to_dict(self) -> dict[str, Any]:
-        return attrs.asdict(self)
+        return attrs.asdict(self, recurse=False)
 
     def to_tuple(self) -> tuple[Any, ...]:
         return attrs.astuple(self)
@@ -699,7 +705,7 @@ class Spec:
 
 
 @attrs.define(kw_only=True)
-class SubSpec:
+class SubSpec(SubSpecBase):
     def get(self, name, default=None):  # -> Any:
         return self.to_dict().get(name, default)
 

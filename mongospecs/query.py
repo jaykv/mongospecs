@@ -3,7 +3,8 @@ A set of helpers to simplify the creation of MongoDB queries.
 """
 
 from pymongo import ASCENDING, DESCENDING
-from .utils import to_refs, deep_merge
+from .base import to_refs
+from .utils import deep_merge
 from typing import Any
 
 __all__ = [

@@ -1,8 +1,6 @@
 from datetime import datetime, timezone
 from typing import Any, Optional
-from attr import define
-
-from msgspec import field
+from attrs import define, field
 
 from mongospecs.attrs import Spec, SubSpec
 
@@ -50,7 +48,7 @@ class Lair(Spec):
     """
 
     name: str = ""
-    inventory: Inventory = field(default_factory=Inventory)
+    inventory: Inventory = field(factory=Inventory)
 
 
 @define
@@ -58,7 +56,7 @@ class ComplexDragon(Dragon):
     _collection = "ComplexDragon"
 
     dob: Optional[datetime] = None
-    lair: Lair = field(default_factory=Lair)
+    lair: Lair = field(factory=Lair)
     visited_lairs: list[Lair] = []
     traits: list[str] = []
     misc: Optional[Any] = ""

@@ -1,6 +1,6 @@
 from typing import Any
 
-__all__ = ["deep_merge", "to_refs"]
+__all__ = ["deep_merge"]
 
 
 def deep_merge(source: dict[str, Any], dest: dict[str, Any]) -> None:
@@ -21,26 +21,3 @@ def deep_merge(source: dict[str, Any], dest: dict[str, Any]) -> None:
                         dest[key].append(item)
                 continue
         dest[key] = value
-
-
-def to_refs(value: Any) -> Any:
-    from mongospecs.msgspec import Spec, SubSpec
-
-    """Convert all Frame instances within the given value to Ids"""
-    # Frame
-    if isinstance(value, Spec):
-        return value._id
-
-    # SubFrame
-    elif isinstance(value, SubSpec):
-        return to_refs(value.to_dict())
-
-    # Lists
-    elif isinstance(value, (list, tuple)):
-        return [to_refs(v) for v in value]
-
-    # Dictionaries
-    elif isinstance(value, dict):
-        return {k: to_refs(v) for k, v in value.items()}
-
-    return value

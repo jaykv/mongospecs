@@ -5,16 +5,15 @@ from copy import deepcopy
 from .empty import Empty, EmptyObject
 import msgspec
 from typing_extensions import Self
-from typing import Callable, ClassVar, Any, Generator, Mapping, Optional, Union, Sequence
+from typing import Callable, Any, Generator, Mapping, Optional, Union, Sequence
 from bson import ObjectId
-from pymongo import MongoClient, UpdateOne
+from pymongo import UpdateOne
 from pymongo.database import Database
 from pymongo.collection import Collection
 from blinker import signal
 
-from .utils import to_refs
 from .query import Condition, Group
-
+from .base import SpecBase, SubSpecBase, to_refs
 from .se import MongoEncoder, mongo_dec_hook, mongo_enc_hook
 
 __all__ = ["Spec", "SubSpec"]
@@ -25,13 +24,7 @@ RawDocuments = Sequence[dict[str, Any]]
 SpecsOrRawDocuments = Union[Specs, RawDocuments]
 
 
-class Spec(msgspec.Struct, kw_only=True, dict=True):
-    _client: ClassVar[Optional[MongoClient]] = None
-    _db: ClassVar[Optional[Database]] = None
-    _collection: ClassVar[Optional[str]] = None
-    _collection_context: ClassVar[Optional[Collection]] = None
-    _default_projection: ClassVar[dict[str, Any]] = {}
-
+class Spec(msgspec.Struct, SpecBase, kw_only=True, dict=True):
     _id: Union[EmptyObject, ObjectId] = msgspec.field(default=Empty)
 
     def get(self, name, default=None):  # -> Any:
@@ -695,7 +688,7 @@ class Spec(msgspec.Struct, kw_only=True, dict=True):
         return self._id < other._id
 
 
-class SubSpec(msgspec.Struct, kw_only=True, dict=True):
+class SubSpec(msgspec.Struct, SubSpecBase, kw_only=True, dict=True):
     def get(self, name, default=None):  # -> Any:
         return self.to_dict().get(name, default)
 

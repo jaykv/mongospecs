@@ -9,7 +9,7 @@ from datetime import datetime
 
 
 @pytest.fixture
-def mongo_client(request):
+def mongo_client():
     """Connect to the test database"""
 
     # Connect to mongodb and create a test database
@@ -22,7 +22,7 @@ def mongo_client(request):
 
 
 @pytest.fixture
-def example_dataset_one(request):
+def example_dataset_one(mongo_client):
     """Create an example set of data that can be used in testing"""
     inventory = Inventory(gold=1000, skulls=100)
 
@@ -36,7 +36,7 @@ def example_dataset_one(request):
 
 
 @pytest.fixture
-def example_dataset_many(request):
+def example_dataset_many(mongo_client):
     """Create an example set of data that can be used in testing"""
 
     # Burt

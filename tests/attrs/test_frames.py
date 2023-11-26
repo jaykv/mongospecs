@@ -2,12 +2,13 @@ from bson.objectid import ObjectId
 from datetime import datetime, timedelta, timezone
 from time import sleep
 from unittest.mock import Mock
-from msgspec import UNSET
+import attrs
 
 from pymongo import ReadPreference
 from mongospecs import Q
 from mongospecs import ASC, DESC, In
 from .models import Dragon, Lair, ComplexDragon, Inventory, MonitoredDragon
+from .fixtures import mongo_client, example_dataset_many, example_dataset_one  # noqa
 
 # Tests
 
@@ -148,13 +149,13 @@ def test_unset(mongo_client, example_dataset_one):
     burt.unset("breed")
 
     assert burt.name == "Burt"
-    assert burt.breed == UNSET
+    assert burt.breed == attrs.NOTHING
     assert "breed" not in burt.to_json_type()
 
     burt.reload()
 
     assert burt.name == "Burt"
-    assert burt.breed == UNSET
+    assert burt.breed == attrs.NOTHING
     assert "breed" not in burt.to_json_type()
 
 
@@ -263,15 +264,15 @@ def test_unset_many(mongo_client, example_dataset_many):
 
     for dragon in dragons:
 
-        assert dragon.name == UNSET
-        assert dragon.breed == UNSET
+        assert dragon.name == attrs.NOTHING
+        assert dragon.breed == attrs.NOTHING
         assert "name" not in dragon.to_json_type()
         assert "breed" not in dragon.to_json_type()
 
         dragon.reload()
 
-        assert dragon.name == UNSET
-        assert dragon.breed == UNSET
+        assert dragon.name == attrs.NOTHING
+        assert dragon.breed == attrs.NOTHING
         assert "name" not in dragon.to_json_type()
         assert "breed" not in dragon.to_json_type()
 
@@ -745,12 +746,12 @@ def test_stop_listening(mongo_client):
 
 def test_get_collection(mongo_client):
     """Return a reference to the database collection for the class"""
-    assert Dragon.get_collection() == mongo_client["mongoframes_test"]["Dragon"]
+    assert Dragon.get_collection() == mongo_client["attrs_test"]["Dragon"]
 
 
 def test_get_db(mongo_client):
     """Return the database for the collection"""
-    assert Dragon.get_db() == mongo_client["mongoframes_test"]
+    assert Dragon.get_db() == mongo_client["attrs_test"]
 
 
 # def test_get_fields(mongo_client):
@@ -772,7 +773,7 @@ def test_flattern_projection():
     assert projection == {"name": True, "inventory.gold": True, "inventory.secret_draw.gold": True}
 
 
-def test_with_options():
+def test_with_options(mongo_client):
     """Flattern projection"""
 
     collection = Dragon.get_collection()

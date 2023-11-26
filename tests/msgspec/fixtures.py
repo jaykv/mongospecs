@@ -18,6 +18,7 @@ def mongo_client(request):
     yield Spec._client
 
     Spec._client.drop_database("mongoframes_test")
+    del Spec._client
 
 
 @pytest.fixture

@@ -1,0 +1,89 @@
+site_name: "mongospecs"
+
+theme:
+  name: "material"
+  features:
+  - announce.dismiss
+  - content.action.edit
+  - content.action.view
+  - content.code.annotate
+  - content.code.copy
+  - content.tooltips
+  - navigation.footer
+  - navigation.indexes
+  - navigation.sections
+  - navigation.tabs
+  - navigation.tabs.sticky
+  - navigation.top
+  - search.highlight
+  - search.suggest
+  - toc.follow
+  palette:
+  - media: "(prefers-color-scheme: light)"
+    scheme: default
+    accent: purple
+    toggle:
+      icon: material/weather-sunny
+      name: Switch to dark mode
+  - media: "(prefers-color-scheme: dark)"
+    scheme: slate
+    primary: black
+    accent: lime
+    toggle:
+      icon: material/weather-night
+      name: Switch to light mode
+
+markdown_extensions:
+- abbr
+- attr_list
+- admonition
+- footnotes
+- md_in_html
+- pymdownx.blocks.admonition
+- pymdownx.blocks.details
+- pymdownx.blocks.tab:
+    alternate_style: true
+    slugify: !!python/object/apply:pymdownx.slugs.slugify
+      kwds:
+        case: lower
+- pymdownx.emoji:
+    emoji_index: !!python/name:material.extensions.emoji.twemoji
+    emoji_generator: !!python/name:material.extensions.emoji.to_svg
+- pymdownx.magiclink
+- pymdownx.snippets:
+- pymdownx.superfences
+- pymdownx.tabbed:
+    alternate_style: true
+    slugify: !!python/object/apply:pymdownx.slugs.slugify
+      kwds:
+        case: lower
+- pymdownx.tasklist:
+    custom_checkbox: true
+
+plugins:
+  search:
+  mkdocstrings:
+    handlers:
+      python:
+        options:
+          docstring_section_style: list
+          filters: ["!^_"]
+          heading_level: 1
+          inherited_members: true
+          merge_init_into_class: false
+          preload_modules: ["msgspec"]
+          separate_signature: true
+          show_if_no_docstring: true
+          show_root_heading: true
+          show_root_full_path: false
+          show_signature_annotations: true
+          signature_crossrefs: true
+
+nav:
+- Home:
+  - Overview: index.md
+- API Reference:
+  - mongospecs:
+    - Spec: reference/spec.md
+    - Query: reference/query.md
+    - Se: reference/se.md

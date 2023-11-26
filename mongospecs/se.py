@@ -1,8 +1,9 @@
-from typing import Any
 from datetime import date
-from bson import ObjectId
-import msgspec
+from typing import Any
+
 import attrs
+import msgspec
+from bson import ObjectId
 
 __all__ = ["MongoEncoder", "MongoDecoder"]
 

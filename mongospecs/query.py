@@ -2,10 +2,12 @@
 A set of helpers to simplify the creation of MongoDB queries.
 """
 
+from typing import Any
+
 from pymongo import ASCENDING, DESCENDING
+
 from .base import to_refs
 from .utils import deep_merge
-from typing import Any
 
 __all__ = [
     # Queries

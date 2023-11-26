@@ -1,0 +1,1 @@
+::: mongospecs.msgspec

@@ -1,9 +1,11 @@
-from mongomock import MongoClient
-import pytest
-from mongospecs.attrs import Spec
-from .models import Inventory, Lair, ComplexDragon
-
 from datetime import datetime
+
+import pytest
+from mongomock import MongoClient
+
+from mongospecs.attrs import Spec
+
+from .models import ComplexDragon, Inventory, Lair
 
 # Fixtures
 

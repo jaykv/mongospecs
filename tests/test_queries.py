@@ -1,4 +1,4 @@
-from mongospecs import Q, Nor, Or, SortBy, Not, In, NotIn, Size, Type, ElemMatch, And, All, Exists
+from mongospecs import All, And, ElemMatch, Exists, In, Nor, Not, NotIn, Or, Q, Size, SortBy, Type
 
 
 def test_q():

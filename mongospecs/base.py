@@ -1,7 +1,8 @@
-from typing import ClassVar, Optional, Any
-from pymongo.database import Database
-from pymongo.collection import Collection
+from typing import Any, ClassVar, Optional
+
 from pymongo import MongoClient
+from pymongo.collection import Collection
+from pymongo.database import Database
 
 
 class SpecBase:

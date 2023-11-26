@@ -1,14 +1,15 @@
-from bson.objectid import ObjectId
 from datetime import datetime, timedelta, timezone
 from time import sleep
 from unittest.mock import Mock
-from msgspec import UNSET
 
+from bson.objectid import ObjectId
+from msgspec import UNSET
 from pymongo import ReadPreference
-from mongospecs import Q
-from mongospecs import ASC, DESC, In
-from .models import Dragon, Lair, ComplexDragon, Inventory, MonitoredDragon
-from .fixtures import mongo_client, example_dataset_many, example_dataset_one  # noqa
+
+from mongospecs import ASC, DESC, In, Q
+
+from .fixtures import example_dataset_many, example_dataset_one, mongo_client  # noqa
+from .models import ComplexDragon, Dragon, Inventory, Lair, MonitoredDragon
 
 # Tests
 

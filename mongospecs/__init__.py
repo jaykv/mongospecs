@@ -1,9 +1,10 @@
-from .query import Q, All, ElemMatch, Exists, In, Not, NotIn, Size, Type, And, Or, Nor, SortBy
-from .msgspec import Spec, SubSpec
-from .se import MongoEncoder, MongoDecoder
+from pymongo import ASCENDING as ASC
+from pymongo import DESCENDING as DESC
 from pymongo.collation import Collation
-from pymongo import ASCENDING as ASC, DESCENDING as DESC
 from pymongo.operations import IndexModel
+
+from .query import All, And, ElemMatch, Exists, In, Nor, Not, NotIn, Or, Q, Size, SortBy, Type
+from .se import MongoDecoder, MongoEncoder
 
 __all__ = [
     # Queries
@@ -23,9 +24,6 @@ __all__ = [
     "Nor",
     # Sorting
     "SortBy",
-    # Spec
-    "Spec",
-    "SubSpec",
     # Se
     "MongoEncoder",
     "MongoDecoder",

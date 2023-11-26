@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from typing import Any, Optional
+
 from attrs import define, field
 
 from mongospecs.attrs import Spec, SubSpec

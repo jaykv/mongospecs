@@ -1,19 +1,20 @@
 from __future__ import annotations
-from contextlib import contextmanager
 
+from contextlib import contextmanager
 from copy import deepcopy
-from .empty import Empty, EmptyObject
+from typing import Any, Callable, Generator, Mapping, Optional, Sequence, Union
+
 import msgspec
-from typing_extensions import Self
-from typing import Callable, Any, Generator, Mapping, Optional, Union, Sequence
+from blinker import signal
 from bson import ObjectId
 from pymongo import UpdateOne
-from pymongo.database import Database
 from pymongo.collection import Collection
-from blinker import signal
+from pymongo.database import Database
+from typing_extensions import Self
 
-from .query import Condition, Group
 from .base import SpecBase, SubSpecBase, to_refs
+from .empty import Empty, EmptyObject
+from .query import Condition, Group
 from .se import MongoEncoder, mongo_dec_hook, mongo_enc_hook
 
 __all__ = ["Spec", "SubSpec"]

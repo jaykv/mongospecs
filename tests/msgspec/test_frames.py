@@ -8,6 +8,7 @@ from pymongo import ReadPreference
 from mongospecs import Q
 from mongospecs import ASC, DESC, In
 from .models import Dragon, Lair, ComplexDragon, Inventory, MonitoredDragon
+from .fixtures import mongo_client, example_dataset_many, example_dataset_one  # noqa
 
 # Tests
 

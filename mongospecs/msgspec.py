@@ -2,6 +2,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 
 from copy import deepcopy
+from .empty import Empty, EmptyObject
 import msgspec
 from typing_extensions import Self
 from typing import Callable, ClassVar, Any, Generator, Mapping, Optional, Union, Sequence
@@ -31,7 +32,7 @@ class Spec(msgspec.Struct, kw_only=True, dict=True):
     _collection_context: ClassVar[Optional[Collection]] = None
     _default_projection: ClassVar[dict[str, Any]] = {}
 
-    _id: Union[ObjectId, msgspec.UnsetType] = msgspec.field(default=msgspec.UNSET)
+    _id: Union[EmptyObject, ObjectId] = msgspec.field(default=Empty)
 
     def get(self, name, default=None):  # -> Any:
         return self.to_dict().get(name, default)
@@ -43,7 +44,7 @@ class Spec(msgspec.Struct, kw_only=True, dict=True):
         signal("insert").send(self.__class__, frames=[self])
 
         document_dict = self.to_dict()
-        if self._id is msgspec.UNSET:
+        if not self._id:
             document_dict.pop("_id", None)
         # Prepare the document to be inserted
         document = to_refs(document_dict)
@@ -116,7 +117,7 @@ class Spec(msgspec.Struct, kw_only=True, dict=True):
         """
 
         # If no `_id` is provided then we insert the document
-        if self._id is msgspec.UNSET or self._id is None:
+        if not self._id:
             return self.insert()
 
         # If an `_id` is provided then we need to check if it exists before
@@ -259,7 +260,7 @@ class Spec(msgspec.Struct, kw_only=True, dict=True):
         # update.
         ids = []
         for frame in frames:
-            if frame._id is not msgspec.UNSET and frame._id is not None:
+            if frame._id:
                 ids.append(frame._id)
 
         # Build the unset object

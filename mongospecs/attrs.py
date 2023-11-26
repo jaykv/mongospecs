@@ -47,7 +47,7 @@ class Spec:
         signal("insert").send(self.__class__, frames=[self])
 
         document_dict = self.to_dict()
-        if self._id:
+        if not self._id:
             document_dict.pop("_id", None)
         # Prepare the document to be inserted
         document = to_refs(document_dict)
@@ -553,7 +553,7 @@ class Spec:
 
         # If `projection` is empty return a full projection based on `_fields`
         if not projection:
-            return {f: True for f in attrs.fields(cls)}, {}, {}
+            return {f: True for f in attrs.fields(cls)}, {}, {}  # type: ignore[misc]
 
         # Flatten the projection
         flat_projection = {}
@@ -615,7 +615,7 @@ class Spec:
         # If only references and sub-frames where specified in the projection
         # then return a full projection based on `_fields`.
         if inclusive:
-            flat_projection = {f: True for f in attrs.fields(cls)}
+            flat_projection = {f: True for f in attrs.fields(cls)}  # type: ignore[misc]
 
         return flat_projection, references, subs
 
@@ -691,21 +691,20 @@ class Spec:
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, self.__class__):
             return False
-        if self._id is Empty or other._id is Empty:
-            return False
+
         return self._id == other._id
 
     def __lt__(self, other: Any) -> Any:
         return self._id < other._id
 
 
-@attrs.define(kw_only=True, dict=True)
+@attrs.define(kw_only=True)
 class SubSpec:
     def get(self, name, default=None):  # -> Any:
         return self.to_dict().get(name, default)
 
     def to_dict(self) -> dict[str, Any]:
-        return msgspec.structs.asdict(self)
+        return attrs.asdict(self)
 
     @classmethod
     def _apply_projection(cls, documents, projection):

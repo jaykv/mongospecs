@@ -3,6 +3,7 @@ from pymongo import DESCENDING as DESC
 from pymongo.collation import Collation
 from pymongo.operations import IndexModel
 
+from .empty import Empty
 from .query import All, And, ElemMatch, Exists, In, Nor, Not, NotIn, Or, Q, Size, SortBy, Type
 from .se import MongoDecoder, MongoEncoder
 
@@ -32,4 +33,6 @@ __all__ = [
     "IndexModel",
     "ASC",
     "DESC",
+    # Empty
+    "Empty",
 ]

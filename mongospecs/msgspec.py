@@ -679,6 +679,10 @@ class Spec(msgspec.Struct, SpecBase, kw_only=True, dict=True):
     def to_tuple(self) -> tuple[Any, ...]:
         return msgspec.structs.astuple(self)
 
+    @classmethod
+    def get_fields(cls) -> set[str]:
+        return set(cls.__struct_fields__)
+
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, self.__class__):
             return False

@@ -1,4 +1,4 @@
-from mongospecs import Spec
+from mongospecs.msgspec import Spec
 
 
 class Country(Spec):

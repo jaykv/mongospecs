@@ -3,7 +3,7 @@ from typing import Any, Optional
 
 from msgspec import field
 
-from mongospecs import Spec, SubSpec
+from mongospecs.msgspec import Spec, SubSpec
 
 __all__ = [
     "Dragon",

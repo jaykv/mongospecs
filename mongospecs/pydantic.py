@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import Annotated, Any, Callable, Generator, Mapping, Optional, Sequence, Union
+from typing import Annotated, Any, Callable, Generator, Literal, Mapping, Optional, Sequence, Union
 
 from blinker import signal
 from bson import ObjectId
@@ -76,7 +76,7 @@ class Spec(BaseModel, SpecBase):
 
     id: Optional[PyObjectId] = Field(default=None, alias="_id")
 
-    def get(self, name, default=None):  # -> Any:
+    def get(self, name: str, default: Any = None) -> Any:
         return self.to_dict().get(name, default)
 
     # Operations
@@ -188,7 +188,7 @@ class Spec(BaseModel, SpecBase):
         signal("deleted").send(self.__class__, frames=[self])
 
     @classmethod
-    def find_one(cls, filter=None, **kwargs) -> Mapping[str, Any]:
+    def find_one(cls, filter: Union[dict[str, Any], Condition, Group, None] = None, **kwargs: Any) -> Mapping[str, Any]:
         """Return the first document matching the filter"""
         # Flatten the projection
         kwargs["projection"], references, subs = cls._flatten_projection(
@@ -215,7 +215,7 @@ class Spec(BaseModel, SpecBase):
 
         return document
 
-    def reload(self, **kwargs):
+    def reload(self, **kwargs: Any) -> None:
         """Reload the document"""
         frame = self.find_one({"_id": self.id}, **kwargs)
         for field in frame:
@@ -322,7 +322,7 @@ class Spec(BaseModel, SpecBase):
         signal("updated").send(cls, frames=frames)
 
     @classmethod
-    def delete_many(cls, documents: SpecsOrRawDocuments):
+    def delete_many(cls, documents: SpecsOrRawDocuments) -> None:
         """Delete multiple documents"""
 
         # Ensure all documents have been converted to frames
@@ -359,12 +359,12 @@ class Spec(BaseModel, SpecBase):
     # Querying
 
     @classmethod
-    def by_id(cls, id, **kwargs) -> Optional[Spec]:
+    def by_id(cls, id: ObjectId, **kwargs: Any) -> Optional[Spec]:
         """Get a document by ID"""
         return cls.one({"_id": id}, **kwargs)
 
     @classmethod
-    def count(cls, filter=None, **kwargs) -> int:
+    def count(cls, filter: Union[dict[str, Any], Condition, Group, None] = None, **kwargs: Any) -> int:
         """Return a count of documents matching the filter"""
         if isinstance(filter, (Condition, Group)):
             filter = filter.to_dict()
@@ -377,7 +377,7 @@ class Spec(BaseModel, SpecBase):
             return cls.get_collection().estimated_document_count(**kwargs)
 
     @classmethod
-    def ids(cls, filter=None, **kwargs) -> list[ObjectId]:
+    def ids(cls, filter: Union[dict[str, Any], Condition, Group, None] = None, **kwargs: Any) -> list[ObjectId]:
         """Return a list of Ids for documents matching the filter"""
         # Find the documents
         if isinstance(filter, (Condition, Group)):
@@ -388,7 +388,7 @@ class Spec(BaseModel, SpecBase):
         return [d["_id"] for d in list(documents)]
 
     @classmethod
-    def one(cls, filter=None, **kwargs) -> Optional[Spec]:
+    def one(cls, filter: Union[dict[str, Any], Condition, Group, None] = None, **kwargs: Any) -> Optional[Spec]:
         """Return the first document matching the filter"""
         # Flatten the projection
         kwargs["projection"], references, subs = cls._flatten_projection(
@@ -417,7 +417,7 @@ class Spec(BaseModel, SpecBase):
         return cls.model_construct(**document)
 
     @classmethod
-    def many(cls, filter=None, **kwargs) -> list[Self]:
+    def many(cls, filter: Union[dict[str, Any], Condition, Group, None] = None, **kwargs: Any) -> list[Self]:
         """Return a list of documents matching the filter"""
         # Flatten the projection
         kwargs["projection"], references, subs = cls._flatten_projection(
@@ -532,7 +532,7 @@ class Spec(BaseModel, SpecBase):
                 sub._apply_projection(raw_subs, projection)
 
     @classmethod
-    def _dereference(cls, documents: RawDocuments, references: dict[str, Any]):
+    def _dereference(cls, documents: RawDocuments, references: dict[str, Any]) -> None:
         """Dereference one or more documents"""
 
         # Dereference each reference
@@ -699,19 +699,19 @@ class Spec(BaseModel, SpecBase):
     # Integrity helpers
 
     @classmethod
-    def cascade(cls, ref_cls, field, frames):
+    def cascade(cls, ref_cls: type[Spec], field: str, frames: list[Spec]) -> None:
         """Apply a cascading delete (does not emit signals)"""
         ids = [to_refs(getattr(f, field)) for f in frames if hasattr(f, field)]
         ref_cls.get_collection().delete_many({"_id": {"$in": ids}})
 
     @classmethod
-    def nullify(cls, ref_cls, field, frames):
+    def nullify(cls, ref_cls: type[Spec], field: str, frames: list[Spec]) -> None:
         """Nullify a reference field (does not emit signals)"""
         ids = [to_refs(f) for f in frames]
         ref_cls.get_collection().update_many({field: {"$in": ids}}, {"$set": {field: None}})
 
     @classmethod
-    def pull(cls, ref_cls, field, frames):
+    def pull(cls, ref_cls: type[Spec], field: str, frames: list[Spec]) -> None:
         """Pull references from a list field (does not emit signals)"""
         ids = [to_refs(f) for f in frames]
         ref_cls.get_collection().update_many({field: {"$in": ids}}, {"$pull": {field: {"$in": ids}}})
@@ -748,14 +748,14 @@ class Spec(BaseModel, SpecBase):
 
 
 class SubSpec(BaseModel, SubSpecBase):
-    def get(self, name, default=None):  # -> Any:
+    def get(self, name: str, default: Any = None) -> Any:
         return self.to_dict().get(name, default)
 
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump()
 
     @classmethod
-    def _apply_projection(cls, documents, projection):
+    def _apply_projection(cls, documents: RawDocuments, projection: dict[str, Any]) -> None:
 
         # Find reference and sub-frame mappings
         references = {}
@@ -780,7 +780,7 @@ class SubSpec(BaseModel, SubSpecBase):
             Spec._apply_sub_frames(documents, subs)
 
     @classmethod
-    def _projection_to_paths(cls, root_key, projection):
+    def _projection_to_paths(cls, root_key: str, projection: dict[str, Any]) -> Union[dict[Any, Any], Literal[True]]:
         """
         Expand a $sub/$sub. projection to a single projection of True (if
         inclusive) or a map of full paths (e.g `employee.company.tel`).
@@ -809,10 +809,10 @@ class SubSpec(BaseModel, SubSpecBase):
                 if isinstance(sub_value, dict):
                     sub_projection.update(sub_value)
                 else:
-                    sub_projection[sub_key] = True
+                    sub_projection[sub_key] = True  # type: ignore[assignment]
 
             else:
-                sub_projection[sub_key] = True
+                sub_projection[sub_key] = True  # type: ignore[assignment]
                 inclusive = False
 
         if inclusive:

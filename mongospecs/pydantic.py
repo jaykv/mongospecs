@@ -2,18 +2,19 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import Any, Callable, Generator, Mapping, Optional, Sequence, Union
+from typing import Annotated, Any, Callable, Generator, Mapping, Optional, Sequence, Union
 
 from blinker import signal
 from bson import ObjectId
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic_core import core_schema
 from pymongo import UpdateOne
 from pymongo.collection import Collection
 from pymongo.database import Database
 from typing_extensions import Self
 
 from .base import SpecBase, SubSpecBase
-from .empty import Empty, EmptyObject
+from .empty import Empty
 from .query import Condition, Group
 
 __all__ = ["Spec", "SubSpec"]
@@ -22,6 +23,31 @@ __all__ = ["Spec", "SubSpec"]
 Specs = Sequence["Spec"]
 RawDocuments = Sequence[dict[str, Any]]
 SpecsOrRawDocuments = Union[Specs, RawDocuments]
+
+
+class _ObjectIdPydanticAnnotation:
+    # Based on https://docs.pydantic.dev/latest/usage/types/custom/#handling-third-party-types.
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls,
+        _source_type: Any,
+        _handler: Callable[[Any], core_schema.CoreSchema],
+    ) -> core_schema.CoreSchema:
+        def validate_from_str(input_value: str) -> ObjectId:
+            return ObjectId(input_value)
+
+        return core_schema.union_schema(
+            [
+                # check if it's an instance first before doing any further work
+                core_schema.is_instance_schema(ObjectId),
+                core_schema.no_info_plain_validator_function(validate_from_str),
+            ],
+            serialization=core_schema.to_string_ser_schema(),
+        )
+
+
+PyObjectId = Annotated[ObjectId, _ObjectIdPydanticAnnotation]
 
 
 def to_refs(value: Any) -> Any:
@@ -48,7 +74,7 @@ def to_refs(value: Any) -> Any:
 class Spec(BaseModel, SpecBase):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    id: Union[EmptyObject, ObjectId] = Field(default=Empty, alias="_id")
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
 
     def get(self, name, default=None):  # -> Any:
         return self.to_dict().get(name, default)
@@ -82,6 +108,9 @@ class Spec(BaseModel, SpecBase):
         for field in fields:
             setattr(self, field, Empty)
             unset[field] = True
+
+            ## remove from set model fields so it excludes when `to_json_type` is called
+            self.model_fields_set.remove(field)
 
         # Update the document
         self.get_collection().update_one({"_id": self.id}, {"$unset": unset})
@@ -330,7 +359,7 @@ class Spec(BaseModel, SpecBase):
     # Querying
 
     @classmethod
-    def by_id(cls, id, **kwargs) -> Self | None:
+    def by_id(cls, id, **kwargs) -> Optional[Spec]:
         """Get a document by ID"""
         return cls.one({"_id": id}, **kwargs)
 
@@ -359,7 +388,7 @@ class Spec(BaseModel, SpecBase):
         return [d["_id"] for d in list(documents)]
 
     @classmethod
-    def one(cls, filter=None, **kwargs) -> Optional[Self]:
+    def one(cls, filter=None, **kwargs) -> Optional[Spec]:
         """Return the first document matching the filter"""
         # Flatten the projection
         kwargs["projection"], references, subs = cls._flatten_projection(
@@ -384,7 +413,8 @@ class Spec(BaseModel, SpecBase):
         if subs:
             cls._apply_sub_frames([document], subs)
 
-        return cls(**document)
+        # use model_construct to skip validation
+        return cls.model_construct(**document)
 
     @classmethod
     def many(cls, filter=None, **kwargs) -> list[Self]:
@@ -693,10 +723,12 @@ class Spec(BaseModel, SpecBase):
         return self.__class__.model_validate_json(data)
 
     def to_json_type(self) -> Any:
-        return self.model_dump(mode="json")
+        return self.model_dump(mode="json", by_alias=True, exclude_unset=True)
 
     def to_dict(self) -> dict[str, Any]:
-        return self.model_dump(by_alias=True)
+        copy_dict = self.__dict__.copy()
+        copy_dict["_id"] = copy_dict.pop("id")
+        return copy_dict
 
     def to_tuple(self) -> tuple[Any, ...]:
         return self.to_tuple()

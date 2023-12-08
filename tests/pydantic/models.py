@@ -28,7 +28,7 @@ class Dragon(Spec):
     def _set_dummy_prop(self, value):
         self._dummy_prop = True
 
-    dummy_prop = property(_get_dummy_prop, _set_dummy_prop)
+    _dummy_prop = property(_get_dummy_prop, _set_dummy_prop)
 
 
 class Inventory(SubSpec):

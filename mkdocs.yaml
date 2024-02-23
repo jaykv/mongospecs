@@ -84,8 +84,9 @@ nav:
   - Overview: index.md
 - API Reference:
   - mongospecs:
-    - Base: reference/base.md
-    - Attrs: reference/attrs.md
-    - Msgspec: reference/msgspec.md
-    - Query: reference/query.md
-    - Se: reference/se.md
+    - base: reference/base.md
+    - attrs: reference/attrs.md
+    - msgspec: reference/msgspec.md
+    - pydantic: reference/pydantic.md
+    - query: reference/query.md
+    - se: reference/se.md

@@ -4,7 +4,8 @@ from pymongo.collation import Collation
 from pymongo.operations import IndexModel
 
 from .empty import Empty
-from .query import All, And, ElemMatch, Exists, In, Nor, Not, NotIn, Or, Q, Size, SortBy, Type
+from .ops import All, And, ElemMatch, Exists, In, Nor, Not, NotIn, Or, Size, SortBy, Type
+from .query import Q
 from .se import MongoDecoder, MongoEncoder
 
 __all__ = [

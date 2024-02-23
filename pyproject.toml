@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "mongospec"
 version = "0.1.0"
-description = "mongo with msgspec"
+description = "simple mongo ODM with support for msgspec, pydantic, and attrs"
 authors = ["Jay <jay.github0@gmail.com>"]
 repository = "https://github.com/jaykv/mongospec"
 readme = "README.md"
@@ -12,10 +12,14 @@ python = "^3.9"
 msgspec = "^0.18.4"
 pymongo = "^4.5.0"
 methodtools = "^0.4.7"
-attrs = "^23.1.0"
 blinker = "^1.6.3"
 typing-extensions = "^4.8.0"
+
+[tool.poetry.group.pydantic.dependencies]
 pydantic = "^2.5.2"
+
+[tool.poetry.group.attrs.dependencies]
+attrs = "^23.1.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^22.12.0"

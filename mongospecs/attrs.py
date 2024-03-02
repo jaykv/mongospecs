@@ -1,17 +1,18 @@
-from __future__ import annotations
-
 from datetime import date, datetime
-from typing import Any, ClassVar, Union
+from typing import Any, ClassVar, Optional, TypeVar, Union
 
 import attrs
 import msgspec
 from bson import ObjectId
+from pymongo import MongoClient
 
 from .base import SpecBase, SubSpecBase
 from .empty import Empty, EmptyObject
 from .se import MongoEncoder, mongo_dec_hook
 
 __all__ = ["Spec", "SubSpec"]
+
+T = TypeVar("T")
 
 
 def attrs_serializer(inst: type, field: attrs.Attribute, value: Any) -> Any:
@@ -26,7 +27,7 @@ def attrs_serializer(inst: type, field: attrs.Attribute, value: Any) -> Any:
 
 @attrs.define(kw_only=True)
 class Spec(SpecBase):
-    _id: Union[EmptyObject, ObjectId] = attrs.field(default=Empty, alias="_id", repr=True)
+    _id: Union[ObjectId, EmptyObject] = attrs.field(default=Empty, alias="_id", repr=True)
     _empty_type: ClassVar[Any] = attrs.NOTHING
 
     @classmethod
@@ -60,3 +61,47 @@ class SubSpec(SubSpecBase):
 
     def to_dict(self) -> dict[str, Any]:
         return attrs.asdict(self)
+
+
+class AttrsAdapter(SpecBase):
+    _id: Union[ObjectId, EmptyObject] = attrs.field(default=Empty, alias="_id", repr=True)
+    _empty_type: ClassVar[Any] = attrs.NOTHING
+    _adapter_obj: ClassVar[Any] = None
+
+    @classmethod
+    def get_fields(cls) -> set[str]:
+        return {f.name for f in attrs.fields(cls._adapter_obj)}  # type: ignore[misc]
+
+    def encode(self, **encode_kwargs: Any) -> bytes:
+        return msgspec.json.encode(self, **encode_kwargs) if encode_kwargs else MongoEncoder.encode(self)
+
+    def decode(self, data: Any, **decode_kwargs: Any) -> Any:
+        return msgspec.json.decode(data, type=self.__class__, dec_hook=mongo_dec_hook, **decode_kwargs)
+
+    def to_json_type(self) -> Any:
+        return attrs.asdict(
+            self, filter=lambda attr, value: value is not attrs.NOTHING, value_serializer=attrs_serializer
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return attrs.asdict(self, recurse=False)
+
+    def to_tuple(self) -> tuple[Any, ...]:
+        return attrs.astuple(self)
+
+
+class AdapterBuilder:
+    def __call__(self, obj: type[T], *, collection: str, client: Optional[MongoClient] = None, **kwds: Any) -> Any:
+        @attrs.define(kw_only=True, slots=False)
+        class BuiltSpecAdapter(obj, AttrsAdapter):
+            pass
+
+        BuiltSpecAdapter.__name__ = f"{obj.__name__}SpecAdapter"
+        BuiltSpecAdapter._adapter_obj = obj
+        BuiltSpecAdapter._collection = collection
+        if client:
+            BuiltSpecAdapter._client = client
+        return BuiltSpecAdapter
+
+
+SpecAdapter = AdapterBuilder()

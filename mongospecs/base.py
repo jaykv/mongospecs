@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import Any, Callable, ClassVar, Generator, Mapping, Optional, Sequence, Union
+from typing import Any, Callable, ClassVar, Generator, Mapping, Optional, Sequence, TypeVar, Union
 
 from blinker import signal
 from bson import ObjectId
@@ -16,6 +16,8 @@ from .query import Condition, Group
 Specs = Sequence["SpecBase"]
 RawDocuments = Sequence[dict[str, Any]]
 SpecsOrRawDocuments = Union[Specs, RawDocuments]
+
+T = TypeVar("T")
 
 
 class SpecBase:
@@ -157,6 +159,34 @@ class SpecBase:
 
         # Send deleted signal
         signal("deleted").send(self.__class__, frames=[self])
+
+    @classmethod
+    def find(cls, filter=None, **kwargs) -> list[Mapping[str, Any]]:
+        """Return a list of documents matching the filter"""
+        # Flatten the projection
+        kwargs["projection"], references, subs = cls._flatten_projection(
+            kwargs.get("projection", cls._default_projection)
+        )
+
+        # Find the document
+        if isinstance(filter, (Condition, Group)):
+            filter = filter.to_dict()
+
+        documents = list(cls.get_collection().find(to_refs(filter), **kwargs))
+
+        # Make sure we found documents
+        if not documents:
+            return []
+
+        # Dereference the documents (if required)
+        if references:
+            cls._dereference(documents, references)
+
+        # Add sub-frames to the documents (if required)
+        if subs:
+            cls._apply_sub_frames(documents, subs)
+
+        return documents
 
     @classmethod
     def find_one(cls, filter=None, **kwargs) -> Mapping[str, Any]:
@@ -347,7 +377,7 @@ class SpecBase:
 
     @classmethod
     def one(cls, filter=None, **kwargs) -> Optional[Self]:
-        """Return the first document matching the filter"""
+        """Return the first spec object matching the filter"""
         # Flatten the projection
         kwargs["projection"], references, subs = cls._flatten_projection(
             kwargs.get("projection", cls._default_projection)
@@ -375,7 +405,7 @@ class SpecBase:
 
     @classmethod
     def many(cls, filter=None, **kwargs) -> list[Self]:
-        """Return a list of documents matching the filter"""
+        """Return a list of spec objects matching the filter"""
         # Flatten the projection
         kwargs["projection"], references, subs = cls._flatten_projection(
             kwargs.get("projection", cls._default_projection)

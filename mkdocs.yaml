@@ -90,3 +90,6 @@ nav:
     - pydantic: reference/pydantic.md
     - query: reference/query.md
     - se: reference/se.md
+    - ops: reference/ops.md
+    - empty: reference/empty.md
+    - utils: reference/utils.md

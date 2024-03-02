@@ -8,13 +8,13 @@ Built on top of the https://github.com/GetmeUK/MongoFrames ODM, with:
 ### Example
 ```
 # Import Spec, either...
-# 1. with pydantic:
+## 1. with pydantic:
 from mongospecs.pydantic import Spec
 
-# 2. with msgspec:
+## 2. with msgspec:
 from mongospecs.msgspec import Spec
 
-# 3. with attrs:
+## 3. with attrs:
 from mongospecs.attrs import Spec
 
 # Define schema model

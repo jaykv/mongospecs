@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from copy import deepcopy
 from typing import Annotated, Any, Callable, ClassVar, Literal, Optional, Union, cast
 
@@ -65,7 +63,7 @@ class Spec(BaseModel, SpecBase):
     id: Optional[PyObjectId] = Field(default=None, alias="_id")
 
     @classmethod
-    def from_document(cls, document: dict[str, Any]) -> Spec:
+    def from_document(cls, document: dict[str, Any]) -> "Spec":
         return cls.model_construct(**document)
 
     @property

@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import Any, Callable, ClassVar, Generator, Mapping, Optional, Sequence, TypeVar, Union
+from typing import Any, Callable, ClassVar, Generator, Mapping, Optional, Protocol, Sequence, TypeVar, Union
 
 from blinker import signal
 from bson import ObjectId
@@ -18,6 +18,225 @@ RawDocuments = Sequence[dict[str, Any]]
 SpecsOrRawDocuments = Union[Specs, RawDocuments]
 
 T = TypeVar("T")
+
+
+class SpecProtocol(Protocol):
+    _client: ClassVar[Optional[MongoClient]] = None
+    _db: ClassVar[Optional[Database]] = None
+    _collection: ClassVar[Optional[str]] = None
+    _collection_context: ClassVar[Optional[Collection]] = None
+    _default_projection: ClassVar[dict[str, Any]] = {}
+    _empty_type: ClassVar[Any] = Empty
+    _id: Union[EmptyObject, ObjectId]
+
+    @classmethod
+    def get_fields(cls) -> set[str]:
+        ...
+
+    @classmethod
+    def from_document(cls, document: dict[str, Any]) -> Self:
+        ...
+
+    def get(self, name, default=None) -> Any:
+        ...
+
+    def encode(self, **encode_kwargs: Any) -> bytes:
+        ...
+
+    def decode(self, data: Any, **decode_kwargs: Any) -> Any:
+        ...
+
+    def to_json_type(self) -> dict[str, Any]:
+        ...
+
+    def to_dict(self) -> dict[str, Any]:
+        ...
+
+    def to_tuple(self) -> tuple[Any, ...]:
+        ...
+
+    # Operations
+    def insert(self) -> None:
+        """Insert this document"""
+        ...
+
+    def unset(self, *fields: Any) -> None:
+        """Unset the given list of fields for this document."""
+        ...
+
+    def update(self, *fields: Any) -> None:
+        """
+        Update this document. Optionally a specific list of fields to update can
+        be specified.
+        """
+        ...
+
+    def upsert(self, *fields: Any) -> None:
+        """
+        Update or Insert this document depending on whether it exists or not.
+        The presense of an `_id` value in the document is used to determine if
+        the document exists.
+
+        NOTE: This method is not the same as specifying the `upsert` flag when
+        calling MongoDB. When called for a document with an `_id` value, this
+        method will call the database to see if a record with that Id exists,
+        if not it will call `insert`, if so it will call `update`. This
+        operation is therefore not atomic and much slower than the equivalent
+        MongoDB operation (due to the extra call).
+        """
+        ...
+
+    def delete(self) -> None:
+        """Delete this document"""
+        ...
+
+    @classmethod
+    def find(cls, filter=None, **kwargs) -> list[Mapping[str, Any]]:
+        """Return a list of documents matching the filter"""
+        ...
+
+    @classmethod
+    def find_one(cls, filter=None, **kwargs) -> Mapping[str, Any]:
+        """Return the first document matching the filter"""
+        ...
+
+    def reload(self, **kwargs):
+        """Reload the document"""
+        ...
+
+    @classmethod
+    def insert_many(cls, documents: SpecsOrRawDocuments) -> Specs:
+        """Insert a list of documents"""
+        ...
+
+    @classmethod
+    def update_many(cls, documents: SpecsOrRawDocuments, *fields: Any) -> None:
+        """
+        Update multiple documents. Optionally a specific list of fields to
+        update can be specified.
+        """
+        ...
+
+    @classmethod
+    def unset_many(cls, documents: SpecsOrRawDocuments, *fields: Any) -> None:
+        """Unset the given list of fields for given documents."""
+        ...
+
+    @classmethod
+    def delete_many(cls, documents: SpecsOrRawDocuments) -> None:
+        """Delete multiple documents"""
+        ...
+
+    # Querying
+
+    @classmethod
+    def by_id(cls, id, **kwargs) -> Optional[Self]:
+        """Get a document by ID"""
+        ...
+
+    @classmethod
+    def count(cls, filter=None, **kwargs) -> int:
+        """Return a count of documents matching the filter"""
+        ...
+
+    @classmethod
+    def ids(cls, filter=None, **kwargs) -> list[ObjectId]:
+        """Return a list of Ids for documents matching the filter"""
+        ...
+
+    @classmethod
+    def one(cls, filter=None, **kwargs) -> Optional[Self]:
+        """Return the first spec object matching the filter"""
+        ...
+
+    @classmethod
+    def many(cls, filter=None, **kwargs) -> list[Self]:
+        """Return a list of spec objects matching the filter"""
+        ...
+
+    @classmethod
+    def get_collection(cls) -> Collection[Any]:
+        """Return a reference to the database collection for the class"""
+        ...
+
+    @classmethod
+    def get_db(cls) -> Database:
+        """Return the database for the collection"""
+        ...
+
+    @classmethod
+    @contextmanager
+    def with_options(cls, **options: Any) -> Generator[Any, Any, None]:
+        ...
+
+    @classmethod
+    def _path_to_value(cls, path: str, parent_dict: dict[str, Any]) -> Any:
+        """Return a value from a dictionary at the given path"""
+        ...
+
+    @classmethod
+    def _path_to_keys(cls, path: str) -> list[str]:
+        """Return a list of keys for a given path"""
+        ...
+
+    @classmethod
+    def _ensure_frames(cls, documents: SpecsOrRawDocuments) -> Specs:
+        """
+        Ensure all items in a list are frames by converting those that aren't.
+        """
+        ...
+
+    @classmethod
+    def _apply_sub_frames(cls, documents: RawDocuments, subs: dict[str, Any]) -> None:
+        """Convert embedded documents to sub-frames for one or more documents"""
+        ...
+
+    @classmethod
+    def _flatten_projection(cls, projection: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        """
+        Flatten a structured projection (structure projections support for
+        projections of (to be) dereferenced fields.
+        """
+        ...
+
+    @classmethod
+    def _dereference(cls, documents: RawDocuments, references: dict[str, Any]):
+        """Dereference one or more documents"""
+        ...
+
+    # Signals
+    @classmethod
+    def listen(cls, event: str, func: Callable) -> None:
+        """Add a callback for a signal against the class"""
+        ...
+
+    @classmethod
+    def stop_listening(cls, event: str, func: Callable) -> None:
+        """Remove a callback for a signal against the class"""
+        ...
+
+    # Integrity helpers
+
+    @classmethod
+    def cascade(cls, ref_cls, field, frames) -> None:
+        """Apply a cascading delete (does not emit signals)"""
+        ...
+
+    @classmethod
+    def nullify(cls, ref_cls, field, frames) -> None:
+        """Nullify a reference field (does not emit signals)"""
+        ...
+
+    @classmethod
+    def pull(cls, ref_cls, field, frames) -> None:
+        """Pull references from a list field (does not emit signals)"""
+        ...
+
+    def __eq__(self, other: Any) -> bool:
+        ...
+
+    def __lt__(self, other: Any) -> Any:
+        ...
 
 
 class SpecBase:

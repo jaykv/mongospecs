@@ -1,16 +1,17 @@
-from typing import Any, ClassVar, Union
+from typing import Any, ClassVar, Optional, Union, cast
 
 import msgspec
 from bson import ObjectId
+from pymongo import MongoClient
 
-from .base import SpecBase, SubSpecBase
+from .base import SpecBase, SpecProtocol, SubSpecBase
 from .empty import Empty, EmptyObject
 from .se import MongoEncoder, mongo_dec_hook, mongo_enc_hook
 
 __all__ = ["Spec", "SubSpec"]
 
 
-class Spec(msgspec.Struct, SpecBase, kw_only=True, dict=True):
+class Spec(msgspec.Struct, SpecBase, kw_only=True):
     _id: Union[EmptyObject, ObjectId] = msgspec.field(default=Empty)
     _empty_type: ClassVar[Any] = msgspec.UNSET
 
@@ -52,3 +53,59 @@ class SubSpec(msgspec.Struct, SubSpecBase, kw_only=True, dict=True):
 
     def to_dict(self) -> dict[str, Any]:
         return msgspec.structs.asdict(self)
+
+
+class MsgspecAdapter(SpecProtocol):
+    _id: Union[EmptyObject, ObjectId] = msgspec.field(default=Empty)
+    _empty_type: ClassVar[Any] = msgspec.UNSET
+
+    def __init__(self, **data: Any) -> None:
+        ...
+
+
+class AdapterBuilder:
+    def __call__(
+        self, obj: type[msgspec.Struct], *, collection: str, client: Optional[MongoClient] = None, **kwds: Any
+    ) -> type[MsgspecAdapter]:
+        class BuiltSpecAdapter(SpecBase, obj):  # type: ignore
+            _id: Union[EmptyObject, ObjectId] = msgspec.field(default=Empty)
+            _empty_type: ClassVar[Any] = msgspec.UNSET
+
+            def encode(self, **encode_kwargs: Any) -> bytes:
+                return msgspec.json.encode(self, **encode_kwargs) if encode_kwargs else MongoEncoder.encode(self)
+
+            def decode(self, data: Any, **decode_kwargs: Any) -> Any:
+                return msgspec.json.decode(data, type=self.__class__, dec_hook=mongo_dec_hook, **decode_kwargs)
+
+            def to_json_type(self) -> Any:
+                return msgspec.to_builtins(self, enc_hook=mongo_enc_hook)
+
+            def to_dict(self) -> dict[str, Any]:
+                return msgspec.structs.asdict(self)
+
+            def to_tuple(self) -> tuple[Any, ...]:
+                return msgspec.structs.astuple(self)
+
+            @classmethod
+            def get_fields(cls) -> set[str]:
+                return set(cls.__struct_fields__)
+
+            # msgspec Struct includes these by default- so we need to override them
+            def __eq__(self, other: Any) -> bool:
+                if not isinstance(other, self.__class__):
+                    return False
+
+                return self._id == other._id
+
+            def __lt__(self, other: Any) -> Any:
+                return self._id < other._id
+
+        BuiltSpecAdapter.__name__ = f"{obj.__name__}SpecAdapter"
+        BuiltSpecAdapter._collection = collection
+        BuiltSpecAdapter.__doc__ = obj.__doc__
+        if client:
+            BuiltSpecAdapter._client = client
+        return cast(type[MsgspecAdapter], BuiltSpecAdapter)
+
+
+SpecAdapter = AdapterBuilder()

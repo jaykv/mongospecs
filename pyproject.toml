@@ -47,7 +47,7 @@ ignore = ["F811"]
 extend-select = ["I"]
 
 [tool.mypy]
-plugins = ["pydantic.mypy"]
+#plugins = ["pydantic.mypy"]
 follow_imports = "silent"
 ignore_missing_imports = true
 show_error_codes = true

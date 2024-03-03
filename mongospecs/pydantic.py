@@ -129,12 +129,10 @@ class SubSpec(BaseModel, SubSpecBase):
 
     @classmethod
     def _apply_projection(cls, documents: RawDocuments, projection: dict[str, Any]) -> None:
-
         # Find reference and sub-frame mappings
         references = {}
         subs = {}
         for key, value in deepcopy(projection).items():
-
             if not isinstance(value, dict):
                 continue
 

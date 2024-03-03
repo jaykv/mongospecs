@@ -20,23 +20,15 @@ publish: package
 	twine upload dist/*
 
 format:
-	black ${SOURCE_FILES} --exclude=cliffy/clis
-	ruff ${SOURCE_FILES} --fix
+	ruff format ${SOURCE_FILES}
+	ruff check ${SOURCE_FILES} --fix
 
 lint:
-	black --check --diff ${SOURCE_FILES} --exclude=cliffy/clis
-	ruff ${SOURCE_FILES}
+	ruff format --check --diff ${SOURCE_FILES}
+	ruff check ${SOURCE_FILES}
 	mypy ${SOURCE_FILES}
 
 shell:
 	source .venv/bin/activate
-
-generate-all:
-	pip install requests six rich
-	cli load examples/*.yaml
-
-generate-cleanup:
-	pip uninstall -y requests six rich
-	cli rm db environ hello pydev requires template town penv
 
 .PHONY: test clean

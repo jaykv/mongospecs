@@ -59,8 +59,7 @@ class MsgspecAdapter(SpecProtocol):
     _id: Union[EmptyObject, ObjectId] = msgspec.field(default=Empty)
     _empty_type: ClassVar[Any] = msgspec.UNSET
 
-    def __init__(self, **data: Any) -> None:
-        ...
+    def __init__(self, **data: Any) -> None: ...
 
 
 class AdapterBuilder:

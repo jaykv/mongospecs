@@ -62,7 +62,6 @@ class ComplexDragon(Dragon):
 
 
 class MonitoredDragon(Dragon):
-
     created: Optional[datetime] = None
     modified: Optional[datetime] = None
 

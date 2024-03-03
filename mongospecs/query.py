@@ -9,6 +9,7 @@ __all__ = [
     "Q",
 ]
 
+
 # Queries
 class Condition:
     """

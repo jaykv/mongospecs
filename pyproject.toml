@@ -22,9 +22,8 @@ pydantic = "^2.5.2"
 attrs = "^23.1.0"
 
 [tool.poetry.group.dev.dependencies]
-black = "^22.12.0"
 pytest = "^7.2.1"
-ruff = "^0.0.254"
+ruff = "^0.3.0"
 mypy = "^1.3.0"
 mongomock = "^4.1.2"
 
@@ -42,9 +41,12 @@ line-length = 120
 
 [tool.ruff]
 line-length = 120
+
+
+[tool.ruff.lint]
+extend-select = ["I"]
 ignore-init-module-imports = true
 ignore = ["F811"]
-extend-select = ["I"]
 
 [tool.mypy]
 #plugins = ["pydantic.mypy"]

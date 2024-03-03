@@ -30,30 +30,22 @@ class SpecProtocol(Protocol):
     _id: Union[EmptyObject, ObjectId]
 
     @classmethod
-    def get_fields(cls) -> set[str]:
-        ...
+    def get_fields(cls) -> set[str]: ...
 
     @classmethod
-    def from_document(cls, document: dict[str, Any]) -> Self:
-        ...
+    def from_document(cls, document: dict[str, Any]) -> Self: ...
 
-    def get(self, name, default=None) -> Any:
-        ...
+    def get(self, name, default=None) -> Any: ...
 
-    def encode(self, **encode_kwargs: Any) -> bytes:
-        ...
+    def encode(self, **encode_kwargs: Any) -> bytes: ...
 
-    def decode(self, data: Any, **decode_kwargs: Any) -> Any:
-        ...
+    def decode(self, data: Any, **decode_kwargs: Any) -> Any: ...
 
-    def to_json_type(self) -> dict[str, Any]:
-        ...
+    def to_json_type(self) -> dict[str, Any]: ...
 
-    def to_dict(self) -> dict[str, Any]:
-        ...
+    def to_dict(self) -> dict[str, Any]: ...
 
-    def to_tuple(self) -> tuple[Any, ...]:
-        ...
+    def to_tuple(self) -> tuple[Any, ...]: ...
 
     # Operations
     def insert(self) -> None:
@@ -166,8 +158,7 @@ class SpecProtocol(Protocol):
 
     @classmethod
     @contextmanager
-    def with_options(cls, **options: Any) -> Generator[Any, Any, None]:
-        ...
+    def with_options(cls, **options: Any) -> Generator[Any, Any, None]: ...
 
     @classmethod
     def _path_to_value(cls, path: str, parent_dict: dict[str, Any]) -> Any:
@@ -232,11 +223,9 @@ class SpecProtocol(Protocol):
         """Pull references from a list field (does not emit signals)"""
         ...
 
-    def __eq__(self, other: Any) -> bool:
-        ...
+    def __eq__(self, other: Any) -> bool: ...
 
-    def __lt__(self, other: Any) -> Any:
-        ...
+    def __lt__(self, other: Any) -> Any: ...
 
 
 class SpecBase:
@@ -719,7 +708,6 @@ class SpecBase:
 
         # Dereference each reference
         for path, projection in subs.items():
-
             # Get the SubFrame class we'll use to wrap the embedded document
             sub = None
             expect_map = False
@@ -789,7 +777,6 @@ class SpecBase:
         inclusive = True
         for key, value in deepcopy(projection).items():
             if isinstance(value, dict):
-
                 # Build the projection value for the field (allowing for
                 # special mongo directives).
                 values_to_project = {
@@ -852,7 +839,6 @@ class SpecBase:
 
         # Dereference each reference
         for path, projection in references.items():
-
             # Check there is a $ref in the projection, else skip it
             if "$ref" not in projection:
                 continue
@@ -951,12 +937,10 @@ class SubSpecBase:
 
     @classmethod
     def _apply_projection(cls, documents, projection):
-
         # Find reference and sub-frame mappings
         references = {}
         subs = {}
         for key, value in deepcopy(projection).items():
-
             if not isinstance(value, dict):
                 continue
 

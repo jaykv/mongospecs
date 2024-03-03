@@ -40,7 +40,6 @@ def ElemMatch(q, *conditions):
     """
     new_condition = {}
     for condition in conditions:
-
         if isinstance(condition, (Condition, Group)):
             condition = condition.to_dict()
 

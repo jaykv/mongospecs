@@ -264,7 +264,6 @@ def test_unset_many(mongo_client, example_dataset_many):
         dragon.unset("name", "breed")
 
     for dragon in dragons:
-
         assert dragon.name == attrs.NOTHING
         assert dragon.breed == attrs.NOTHING
         assert "name" not in dragon.to_json_type()
@@ -784,7 +783,6 @@ def test_with_options(mongo_client):
         assert Dragon.get_collection().read_preference == ReadPreference.SECONDARY
 
         with Dragon.with_options(read_preference=ReadPreference.PRIMARY_PREFERRED):
-
             assert Dragon.get_collection().read_preference == ReadPreference.PRIMARY_PREFERRED
 
         assert Dragon.get_collection().read_preference == ReadPreference.SECONDARY

@@ -3,7 +3,7 @@ from typing import Any, Optional
 
 from attrs import define, field
 
-from mongospecs.attrs import Spec, SubSpec
+from mongospecs.attrs import SubSpec
 
 __all__ = [
     "Dragon",
@@ -14,7 +14,7 @@ __all__ = [
 ]
 
 
-@define
+@define(slots=False)
 class Dragon:
     """
     A dragon.
@@ -32,7 +32,7 @@ class Dragon:
     dummy_prop = property(_get_dummy_prop, _set_dummy_prop)
 
 
-@define
+@define(slots=False)
 class Inventory(SubSpec):
     """
     An inventory of items kept within a lair.
@@ -42,8 +42,8 @@ class Inventory(SubSpec):
     skulls: int = 0
 
 
-@define
-class Lair(Spec):
+@define(slots=False)
+class Lair:
     """
     A lair in which a dragon resides.
     """
@@ -52,7 +52,7 @@ class Lair(Spec):
     inventory: Inventory = field(factory=Inventory)
 
 
-@define
+@define(slots=False)
 class ComplexDragon(Dragon):
     _collection = "ComplexDragon"
 
@@ -62,10 +62,8 @@ class ComplexDragon(Dragon):
     traits: list[str] = []
     misc: Optional[Any] = ""
 
-    _default_projection = {"lair": {"$ref": Lair, "inventory": {"$sub": Inventory}}}
 
-
-@define
+@define(slots=False)
 class MonitoredDragon(Dragon):
     created: Optional[datetime] = None
     modified: Optional[datetime] = None

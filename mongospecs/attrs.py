@@ -64,14 +64,13 @@ class SubSpec(SubSpecBase):
         return attrs.asdict(self)
 
 
-class AttrsAdapter(AttrsInstance, SpecProtocol):
-    pass
+class AttrsAdapter(AttrsInstance, SpecProtocol): ...
 
 
 class AdapterBuilder:
     def __call__(
         self, obj: type[AttrsInstance], *, collection: str, client: Optional[MongoClient] = None, **kwds: Any
-    ) -> type[AttrsAdapter]:
+    ) -> Any:
         @attrs.define(kw_only=True)
         class BuiltSpecAdapter(Spec, obj):  # type: ignore
             ...

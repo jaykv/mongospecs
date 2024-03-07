@@ -3,7 +3,7 @@ from datetime import datetime
 import pytest
 from mongomock import MongoClient
 
-from mongospecs.msgspec import Spec
+from mongospecs.base import SpecBase
 
 from .models import ComplexDragon, Inventory, Lair
 
@@ -15,12 +15,11 @@ def mongo_client(request):
     """Connect to the test database"""
 
     # Connect to mongodb and create a test database
-    Spec._client = MongoClient("mongodb://localhost:27017/mongoframes_test")
+    SpecBase._client = MongoClient("mongodb://localhost:27017/mongoframes_test")
+    yield SpecBase._client
 
-    yield Spec._client
-
-    Spec._client.drop_database("mongoframes_test")
-    del Spec._client
+    SpecBase._client.drop_database("mongoframes_test")
+    del SpecBase._client
 
 
 @pytest.fixture

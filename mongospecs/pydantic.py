@@ -1,5 +1,4 @@
-from copy import deepcopy
-from typing import Annotated, Any, Callable, ClassVar, Literal, Optional, Union, cast
+from typing import Annotated, Any, Callable, ClassVar, Optional, Union, cast
 
 from blinker import signal
 from bson import ObjectId
@@ -7,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic_core import core_schema
 from pymongo import MongoClient
 
-from .base import EmptyObject, RawDocuments, SpecBase, SubSpecBase
+from .base import EmptyObject, SpecBase, SubSpecBase
 
 __all__ = ["Spec", "SubSpec"]
 
@@ -88,7 +87,7 @@ class Spec(BaseModel, SpecBase):
             unset[field] = True
 
             ## pydantic specific change:
-            ## remove from set model fields so it excludes when `to_json_type` is called
+            ## remove from model fields set so it excludes when `to_json_type` is called
             self.model_fields_set.remove(field)
 
         # Update the document
@@ -111,7 +110,7 @@ class Spec(BaseModel, SpecBase):
         copy_dict["_id"] = copy_dict.pop("id")
         return copy_dict
 
-    # note: pydantic already comes with to_tuple
+    # note: pydantic BaseModel already has to_tuple
 
     @classmethod
     def get_fields(cls) -> set[str]:
@@ -126,71 +125,6 @@ class SubSpec(BaseModel, SubSpecBase):
 
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump()
-
-    @classmethod
-    def _apply_projection(cls, documents: RawDocuments, projection: dict[str, Any]) -> None:
-        # Find reference and sub-frame mappings
-        references = {}
-        subs = {}
-        for key, value in deepcopy(projection).items():
-            if not isinstance(value, dict):
-                continue
-
-            # Store a reference/sub-frame projection
-            if "$ref" in value:
-                references[key] = value
-            elif "$sub" in value or "$sub." in value:
-                subs[key] = value
-
-        # Dereference the documents (if required)
-        if references:
-            Spec._dereference(documents, references)
-
-        # Add sub-frames to the documents (if required)
-        if subs:
-            Spec._apply_sub_frames(documents, subs)
-
-    @classmethod
-    def _projection_to_paths(cls, root_key: str, projection: dict[str, Any]) -> Union[dict[Any, Any], Literal[True]]:
-        """
-        Expand a $sub/$sub. projection to a single projection of True (if
-        inclusive) or a map of full paths (e.g `employee.company.tel`).
-        """
-
-        # Referenced projections are handled separately so just flag the
-        # reference field to true.
-        if "$ref" in projection:
-            return True
-
-        inclusive = True
-        sub_projection = {}
-        for key, value in projection.items():
-            if key in ["$sub", "$sub."]:
-                continue
-
-            if key.startswith("$"):
-                sub_projection[root_key] = {key: value}
-                inclusive = False
-                continue
-
-            sub_key = root_key + "." + key
-
-            if isinstance(value, dict):
-                sub_value = cls._projection_to_paths(sub_key, value)
-                if isinstance(sub_value, dict):
-                    sub_projection.update(sub_value)
-                else:
-                    sub_projection[sub_key] = True  # type: ignore[assignment]
-
-            else:
-                sub_projection[sub_key] = True  # type: ignore[assignment]
-                inclusive = False
-
-        if inclusive:
-            # No specific keys so this is inclusive
-            return True
-
-        return sub_projection
 
 
 class PydanticAdapter(Spec, BaseModel):

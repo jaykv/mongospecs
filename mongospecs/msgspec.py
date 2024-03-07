@@ -1,4 +1,4 @@
-from typing import Any, ClassVar, Optional, Union, cast
+from typing import Any, ClassVar, Optional, Union
 
 import msgspec
 from bson import ObjectId
@@ -65,7 +65,7 @@ class MsgspecAdapter(SpecProtocol):
 class AdapterBuilder:
     def __call__(
         self, obj: type[msgspec.Struct], *, collection: str, client: Optional[MongoClient] = None, **kwds: Any
-    ) -> type[MsgspecAdapter]:
+    ) -> Any:
         class BuiltSpecAdapter(SpecBase, obj):  # type: ignore
             _id: Union[EmptyObject, ObjectId] = msgspec.field(default=Empty)
             _empty_type: ClassVar[Any] = msgspec.UNSET
@@ -104,7 +104,7 @@ class AdapterBuilder:
         BuiltSpecAdapter.__doc__ = obj.__doc__
         if client:
             BuiltSpecAdapter._client = client
-        return cast(type[MsgspecAdapter], BuiltSpecAdapter)
+        return BuiltSpecAdapter
 
 
 SpecAdapter = AdapterBuilder()

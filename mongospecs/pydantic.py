@@ -1,4 +1,4 @@
-from typing import Annotated, Any, Callable, ClassVar, Optional, Union, cast
+from typing import Annotated, Any, Callable, ClassVar, Optional, TypeVar, Union, cast
 
 from blinker import signal
 from bson import ObjectId
@@ -58,7 +58,7 @@ def to_refs(value: Any) -> Any:
 
 
 class Spec(BaseModel, SpecBase):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 
     id: Optional[PyObjectId] = Field(default=None, alias="_id")
 
@@ -140,11 +140,14 @@ class PydanticAdapter(Spec, BaseModel):
         ...
 
 
+T = TypeVar("T", bound=PydanticAdapter)
+
+
 class AdapterBuilder:
     def __call__(
         self, obj: type[BaseModel], *, collection: str, client: Optional[MongoClient] = None, **kwds: Any
-    ) -> type[PydanticAdapter]:
-        class BuiltSpecAdapter(Spec, obj):  # type: ignore
+    ) -> Any:
+        class BuiltSpecAdapter(obj, Spec):  # type: ignore
             pass
 
         BuiltSpecAdapter.__name__ = f"{obj.__name__}SpecAdapter"
@@ -152,7 +155,7 @@ class AdapterBuilder:
         BuiltSpecAdapter.__doc__ = obj.__doc__
         if client:
             BuiltSpecAdapter._client = client
-        return cast(type[PydanticAdapter], BuiltSpecAdapter)
+        return BuiltSpecAdapter
 
 
 SpecAdapter = AdapterBuilder()

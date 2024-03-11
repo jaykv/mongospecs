@@ -1,13 +1,15 @@
 import pytest
+from attrs import define
 
 from mongospecs import DESC, Empty, Paginator, Q
-from mongospecs.msgspec import Spec
+from mongospecs.attrs import Spec
 
 from .fixtures import mongo_client  # noqa
 
 # Classes
 
 
+@define
 class Orc(Spec):
     """
     An orc.

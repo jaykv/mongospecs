@@ -1,7 +1,7 @@
 import pytest
 
 from mongospecs import DESC, Empty, Paginator, Q
-from mongospecs.msgspec import Spec
+from mongospecs.pydantic import Spec
 
 from .fixtures import mongo_client  # noqa
 

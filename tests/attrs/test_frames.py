@@ -91,12 +91,12 @@ def test_to_json_type(mongo_client, example_dataset_one):
     burt_json = burt.to_json_type()
 
     assert burt_json == {
-        "_id": str(burt._id),
+        "_id": str(burt.id),
         "name": "Burt",
         "breed": "Cold-drake",
         "dob": "1979-06-11T00:00:00",
         "traits": ["irritable", "narcissistic"],
-        "lair": {"_id": str(cave._id), "name": "Cave", "inventory": {"gold": 1000, "skulls": 100}},
+        "lair": {"_id": str(cave.id), "name": "Cave", "inventory": {"gold": 1000, "skulls": 100}},
         "visited_lairs": [],
         "misc": "",
     }
@@ -117,7 +117,7 @@ def test_insert(mongo_client):
     burt.insert()
 
     # Test the document now has an Id
-    assert burt._id is not None
+    assert burt.id is not None
 
     # Get the document from the database and check it's values
     burt.reload()

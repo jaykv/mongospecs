@@ -8,7 +8,6 @@ from bson import ObjectId
 from pymongo import MongoClient
 
 from .base import SpecBase, SpecProtocol, SubSpecBase
-from .empty import Empty, EmptyObject
 from .se import MongoEncoder, mongo_dec_hook
 
 __all__ = ["Spec", "SubSpec"]
@@ -28,8 +27,16 @@ def attrs_serializer(inst: type, field: attrs.Attribute, value: Any) -> Any:
 
 @attrs.define(kw_only=True)
 class Spec(SpecBase):
-    _id: Union[ObjectId, EmptyObject] = attrs.field(default=Empty, alias="_id", repr=True)
+    id: Union[ObjectId, msgspec.UnsetType] = attrs.field(default=msgspec.UNSET, alias="_id", repr=True)
     _empty_type: ClassVar[Any] = attrs.NOTHING
+
+    @property
+    def _id(self) -> Union[ObjectId, msgspec.UnsetType]:
+        return self.id
+
+    @_id.setter
+    def _id(self, value: ObjectId) -> None:
+        self.id = value
 
     @classmethod
     def get_fields(cls) -> set[str]:
@@ -47,7 +54,9 @@ class Spec(SpecBase):
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return attrs.asdict(self, recurse=False)
+        copy_dict = attrs.asdict(self, recurse=False).copy()
+        copy_dict["_id"] = copy_dict.pop("id")
+        return copy_dict
 
     def to_tuple(self) -> tuple[Any, ...]:
         return attrs.astuple(self)

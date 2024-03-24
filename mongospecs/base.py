@@ -245,6 +245,10 @@ class SpecBase:
     def from_document(cls, document: dict[str, Any]) -> Self:
         return cls(**document)
 
+    @classmethod
+    def from_raw_bson(cls, raw_bson) -> Any:
+        pass
+
     def get(self, name, default=None) -> Any:
         return self.to_dict().get(name, default)
 

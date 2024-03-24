@@ -93,3 +93,4 @@ nav:
     - ops: reference/ops.md
     - empty: reference/empty.md
     - utils: reference/utils.md
+    - bson: reference/bson.md

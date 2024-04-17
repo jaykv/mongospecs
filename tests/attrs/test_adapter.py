@@ -77,7 +77,7 @@ def test_attrs_adapter(mongo_client) -> None:
     CarSpec = SpecAdapter(Car, collection="cars", client=mongo_client)
     assert CarSpec.get_fields() == {"_id", "make", "model", "year"}
     car = CarSpec(make="test", model="test123", year=2000)  # type: ignore[call-arg]
-    assert car.to_dict() == {"_id": Empty, "make": "test", "model": "test123", "year": 2000}
+    assert car.to_dict() == {"_id": None, "make": "test", "model": "test123", "year": 2000}
     assert car.get_fields() == {"_id", "make", "model", "year"}
 
     car.insert()
@@ -218,13 +218,13 @@ def test_unset(mongo_client, example_dataset_one):
     burt.unset("breed")
 
     assert burt.name == "Burt"
-    assert burt.breed == attrs.NOTHING
+    assert burt.breed == Empty
     assert "breed" not in burt.to_json_type()
 
     burt.reload()
 
     assert burt.name == "Burt"
-    assert burt.breed == attrs.NOTHING
+    assert burt.breed == Empty
     assert "breed" not in burt.to_json_type()
 
 
@@ -332,15 +332,15 @@ def test_unset_many(mongo_client, example_dataset_many):
         dragon.unset("name", "breed")
 
     for dragon in dragons:
-        assert dragon.name == attrs.NOTHING
-        assert dragon.breed == attrs.NOTHING
+        assert dragon.name == Empty
+        assert dragon.breed == Empty
         assert "name" not in dragon.to_json_type()
         assert "breed" not in dragon.to_json_type()
 
         dragon.reload()
 
-        assert dragon.name == attrs.NOTHING
-        assert dragon.breed == attrs.NOTHING
+        assert dragon.name == Empty
+        assert dragon.breed == Empty
         assert "name" not in dragon.to_json_type()
         assert "breed" not in dragon.to_json_type()
 

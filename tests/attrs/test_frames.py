@@ -2,11 +2,10 @@ from datetime import datetime, timedelta, timezone
 from time import sleep
 from unittest.mock import Mock
 
-import attrs
 from bson.objectid import ObjectId
 from pymongo import ReadPreference
 
-from mongospecs import ASC, DESC, In, Q
+from mongospecs import ASC, DESC, Empty, In, Q
 
 from .fixtures import example_dataset_many, example_dataset_one, mongo_client  # noqa
 from .models import ComplexDragon, Dragon, Inventory, Lair, MonitoredDragon
@@ -150,13 +149,13 @@ def test_unset(mongo_client, example_dataset_one):
     burt.unset("breed")
 
     assert burt.name == "Burt"
-    assert burt.breed == attrs.NOTHING
+    assert burt.breed == Empty
     assert "breed" not in burt.to_json_type()
 
     burt.reload()
 
     assert burt.name == "Burt"
-    assert burt.breed == attrs.NOTHING
+    assert burt.breed == Empty
     assert "breed" not in burt.to_json_type()
 
 
@@ -264,15 +263,15 @@ def test_unset_many(mongo_client, example_dataset_many):
         dragon.unset("name", "breed")
 
     for dragon in dragons:
-        assert dragon.name == attrs.NOTHING
-        assert dragon.breed == attrs.NOTHING
+        assert dragon.name == Empty
+        assert dragon.breed == Empty
         assert "name" not in dragon.to_json_type()
         assert "breed" not in dragon.to_json_type()
 
         dragon.reload()
 
-        assert dragon.name == attrs.NOTHING
-        assert dragon.breed == attrs.NOTHING
+        assert dragon.name == Empty
+        assert dragon.breed == Empty
         assert "name" not in dragon.to_json_type()
         assert "breed" not in dragon.to_json_type()
 

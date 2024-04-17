@@ -6,7 +6,7 @@ from attr import define
 from bson import ObjectId
 
 from mongospecs.attrs import Spec as AttrsSpec
-from mongospecs.bson import decode, encode
+from mongospecs.bson import decode, encode, encode_spec
 from mongospecs.msgspec import Spec as MsgspecSpec
 
 
@@ -57,9 +57,9 @@ def test_bson(klass):
 def test_bson_with_spec(spec_klass):
     x = spec_klass(x=1, y=2, _id=ObjectId())
 
-    msg = encode(x)  # Encoding a high-level type works
+    msg = encode_spec(x)  # Encoding a high-level type works
 
     assert x == decode(msg, typ=spec_klass)
 
     with pytest.raises(msgspec.ValidationError):
-        decode(encode(spec_klass(x="oops", y=2)), typ=spec_klass)
+        decode(encode_spec(spec_klass(x="oops", y=2)), typ=spec_klass)

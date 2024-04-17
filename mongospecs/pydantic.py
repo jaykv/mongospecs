@@ -36,27 +36,6 @@ class _ObjectIdPydanticAnnotation:
 PyObjectId = Annotated[ObjectId, _ObjectIdPydanticAnnotation]
 
 
-def to_refs(value: Any) -> Any:
-    """Convert all Frame instances within the given value to Ids"""
-    # Frame
-    if isinstance(value, SpecBase):
-        return getattr(value, "id")
-
-    # SubFrame
-    elif isinstance(value, SubSpecBase):
-        return to_refs(value.to_dict())
-
-    # Lists
-    elif isinstance(value, (list, tuple)):
-        return [to_refs(v) for v in value]
-
-    # Dictionaries
-    elif isinstance(value, dict):
-        return {k: to_refs(v) for k, v in value.items()}
-
-    return value
-
-
 class Spec(BaseModel, SpecBase):
     model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 

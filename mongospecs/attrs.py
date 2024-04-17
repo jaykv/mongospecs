@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Any, ClassVar, Optional, TypeVar, Union
+from typing import Any, ClassVar, Optional, TypeVar
 
 import attrs
 import msgspec
@@ -8,6 +8,7 @@ from bson import ObjectId
 from pymongo import MongoClient
 
 from .base import SpecBase, SpecProtocol, SubSpecBase
+from .empty import Empty
 from .se import MongoEncoder, mongo_dec_hook
 
 __all__ = ["Spec", "SubSpec"]
@@ -27,16 +28,15 @@ def attrs_serializer(inst: type, field: attrs.Attribute, value: Any) -> Any:
 
 @attrs.define(kw_only=True)
 class Spec(SpecBase):
-    id: Union[ObjectId, msgspec.UnsetType] = attrs.field(default=msgspec.UNSET, alias="_id", repr=True)
-    _empty_type: ClassVar[Any] = attrs.NOTHING
+    _id: Optional[ObjectId] = attrs.field(default=None, alias="_id", repr=True)
 
     @property
-    def _id(self) -> Union[ObjectId, msgspec.UnsetType]:
-        return self.id
+    def id(self) -> Optional[ObjectId]:
+        return self._id
 
-    @_id.setter
-    def _id(self, value: ObjectId) -> None:
-        self.id = value
+    @id.setter
+    def id(self, value: ObjectId) -> None:
+        self._id = value
 
     @classmethod
     def get_fields(cls) -> set[str]:
@@ -50,13 +50,13 @@ class Spec(SpecBase):
 
     def to_json_type(self) -> Any:
         return attrs.asdict(
-            self, filter=lambda attr, value: value is not attrs.NOTHING, value_serializer=attrs_serializer
+            self,
+            filter=lambda attr, value: value is not Empty or (attr.name == "_id" and value is not None),
+            value_serializer=attrs_serializer,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        copy_dict = attrs.asdict(self, recurse=False).copy()
-        copy_dict["_id"] = copy_dict.pop("id")
-        return copy_dict
+        return attrs.asdict(self, recurse=False).copy()
 
     def to_tuple(self) -> tuple[Any, ...]:
         return attrs.astuple(self)

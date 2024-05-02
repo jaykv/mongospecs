@@ -6,7 +6,7 @@ Built on top of the https://github.com/GetmeUK/MongoFrames ODM, with:
 
 
 ### Example
-```
+```python
 # Import Spec, either...
 ## 1. with pydantic:
 from mongospecs.pydantic import Spec

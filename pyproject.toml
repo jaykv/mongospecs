@@ -36,9 +36,6 @@ mkdocstrings-python = "^1.7.5"
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
-[tool.black]
-line-length = 120
-
 [tool.ruff]
 line-length = 120
 

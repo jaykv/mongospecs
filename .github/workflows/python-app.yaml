@@ -6,10 +6,10 @@ name: Python library with poetry
 on:
   push:
     paths:
-      - 'cliffy/**'
+      - 'mongospecs/**'
       - 'tests/**'
       - 'examples/**'
-      - '!examples/generated/**'
+      - 'pyproject.toml'
 
 permissions:
   contents: read

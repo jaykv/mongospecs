@@ -12,7 +12,7 @@ __all__ = ["Spec", "SubSpec"]
 
 
 class Spec(msgspec.Struct, SpecBase, kw_only=True):
-    _id: Union[ObjectId, msgspec.UnsetType] = msgspec.field(name="_id", default=msgspec.UNSET)
+    _id: Union[ObjectId, msgspec.UnsetType] = msgspec.field(name="_id", default=msgspec.UNSET)  # type: ignore[assignment]
     _empty_type: ClassVar[Any] = msgspec.UNSET
 
     def encode(self, **encode_kwargs: Any) -> bytes:

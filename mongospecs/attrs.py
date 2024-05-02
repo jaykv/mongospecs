@@ -28,7 +28,7 @@ def attrs_serializer(inst: type, field: attrs.Attribute, value: Any) -> Any:
 
 @attrs.define(kw_only=True)
 class Spec(SpecBase):
-    _id: Optional[ObjectId] = attrs.field(default=None, alias="_id", repr=True)
+    _id: Optional[ObjectId] = attrs.field(default=None, alias="_id", repr=True)  # type: ignore[assignment]
 
     @property
     def id(self) -> Optional[ObjectId]:

@@ -1,1 +1,1 @@
-::: mongosepcs.ops
+::: mongospecs.ops

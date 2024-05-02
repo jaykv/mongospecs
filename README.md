@@ -5,7 +5,7 @@ Built on top of the https://github.com/GetmeUK/MongoFrames ODM, with:
 - Type-hints
 
 ## Install
-Choose on of the following groups:
+Choose from one of the following:
 * `pip install mongospecs` for msgspec only
 * `pip install mongospecs[pydantic]` for msgspec and pydantic only
 * `pip install mongospecs[attrs]` for msgspec and attrs only

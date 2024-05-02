@@ -67,6 +67,9 @@ class Page(Generic[T]):
         return self.offset + self.items.index(item)
 
 
+# TODO: REFACTOR
+
+
 @dataclass
 class Paginator(Generic[TSpec]):
     """

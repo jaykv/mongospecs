@@ -4,6 +4,12 @@ Built on top of the https://github.com/GetmeUK/MongoFrames ODM, with:
 - Pydantic (`BaseModel`), attrs (`@define`), and msgspec (`Struct`) support for defining schema models (specs)
 - Type-hints
 
+## Install
+Choose on of the following groups:
+* `pip install mongospecs` for msgspec only
+* `pip install mongospecs[pydantic]` for msgspec and pydantic only
+* `pip install mongospecs[attrs]` for msgspec and attrs only
+* `pip install mongospecs[pydantic,attrs]` for msgspec, pydantic, and attrs
 
 ### Example
 ```python

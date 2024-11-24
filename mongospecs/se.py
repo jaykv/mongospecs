@@ -1,5 +1,5 @@
+import typing as t
 from datetime import date
-from typing import Any
 
 try:
     import attrs
@@ -14,7 +14,7 @@ from bson import ObjectId
 __all__ = ["MongoEncoder", "MongoDecoder"]
 
 
-def mongo_enc_hook(obj: Any) -> Any:
+def mongo_enc_hook(obj: t.Any) -> t.Any:
     if obj is msgspec.UNSET or obj is ATTRS_NOTHING_TYPE:
         return None
     elif type(obj) == date:
@@ -26,7 +26,7 @@ def mongo_enc_hook(obj: Any) -> Any:
     raise NotImplementedError(f"Objects of type {type(obj)} are not supported")
 
 
-def mongo_dec_hook(typ: Any, obj: Any) -> Any:
+def mongo_dec_hook(typ: t.Any, obj: t.Any) -> t.Any:
     if typ is ObjectId:
         return ObjectId(obj)
     raise NotImplementedError(f"Objects of type {type(obj)} are not supported")

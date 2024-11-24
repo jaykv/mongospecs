@@ -1,5 +1,5 @@
+import typing as t
 from datetime import date, datetime
-from typing import Any, ClassVar, Optional, TypeVar
 
 import attrs
 import msgspec
@@ -13,10 +13,10 @@ from .se import MongoEncoder, mongo_dec_hook
 
 __all__ = ["Spec", "SubSpec"]
 
-T = TypeVar("T")
+T = t.TypeVar("T")
 
 
-def attrs_serializer(inst: type, field: attrs.Attribute, value: Any) -> Any:
+def attrs_serializer(inst: type, field: attrs.Attribute, value: t.Any) -> t.Any:
     if type(value) == date:
         return str(value)
     elif isinstance(value, ObjectId):
@@ -28,10 +28,10 @@ def attrs_serializer(inst: type, field: attrs.Attribute, value: Any) -> Any:
 
 @attrs.define(kw_only=True)
 class Spec(SpecBase):
-    _id: Optional[ObjectId] = attrs.field(default=None, alias="_id", repr=True)  # type: ignore[assignment]
+    _id: t.Optional[ObjectId] = attrs.field(default=None, alias="_id", repr=True)  # type: ignore[assignment]
 
     @property
-    def id(self) -> Optional[ObjectId]:
+    def id(self) -> t.Optional[ObjectId]:
         return self._id
 
     @id.setter
@@ -42,34 +42,34 @@ class Spec(SpecBase):
     def get_fields(cls) -> set[str]:
         return {f.name for f in attrs.fields(cls)}  # type: ignore[misc]
 
-    def encode(self, **encode_kwargs: Any) -> bytes:
+    def encode(self, **encode_kwargs: t.Any) -> bytes:
         return msgspec.json.encode(self, **encode_kwargs) if encode_kwargs else MongoEncoder.encode(self)
 
-    def decode(self, data: Any, **decode_kwargs: Any) -> Any:
+    def decode(self, data: t.Any, **decode_kwargs: t.Any) -> t.Any:
         return msgspec.json.decode(data, type=self.__class__, dec_hook=mongo_dec_hook, **decode_kwargs)
 
-    def to_json_type(self) -> Any:
+    def to_json_type(self) -> t.Any:
         return attrs.asdict(
             self,
             filter=lambda attr, value: value is not Empty or (attr.name == "_id" and value is not None),
             value_serializer=attrs_serializer,
         )
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, t.Any]:
         return attrs.asdict(self, recurse=False).copy()
 
-    def to_tuple(self) -> tuple[Any, ...]:
+    def to_tuple(self) -> tuple[t.Any, ...]:
         return attrs.astuple(self)
 
 
 @attrs.define(kw_only=True)
 class SubSpec(SubSpecBase):
-    _parent: ClassVar[Any] = Spec
+    _parent: t.ClassVar[t.Any] = Spec
 
     def get(self, name, default=None):  # -> Any:
         return self.to_dict().get(name, default)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, t.Any]:
         return attrs.asdict(self)
 
 
@@ -78,8 +78,8 @@ class AttrsAdapter(AttrsInstance, SpecProtocol): ...
 
 class AdapterBuilder:
     def __call__(
-        self, obj: type[AttrsInstance], *, collection: str, client: Optional[MongoClient] = None, **kwds: Any
-    ) -> Any:
+        self, obj: type[AttrsInstance], *, collection: str, client: t.Optional[MongoClient] = None, **kwds: t.Any
+    ) -> t.Any:
         @attrs.define(kw_only=True)
         class BuiltSpecAdapter(Spec, obj):  # type: ignore
             ...

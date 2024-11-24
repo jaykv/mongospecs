@@ -1,9 +1,9 @@
 from pymongo import ASCENDING, DESCENDING
 
 from .base import to_refs
-from .query import Condition, Group
+from .query import Q, Condition, Group
 from .utils import deep_merge
-
+import typing as t
 __all__ = [
     # Operators
     "All",
@@ -25,7 +25,7 @@ __all__ = [
 # Operators
 
 
-def All(q, value):
+def All(q: Q, value: list[t.Any]) -> Condition:
     """
     The All operator selects documents where the value of the field is an list
     that contains all the specified elements.
@@ -33,12 +33,12 @@ def All(q, value):
     return Condition(q._path, to_refs(value), "$all")
 
 
-def ElemMatch(q, *conditions):
+def ElemMatch(q: Q, *conditions: t.Union[Condition, Group, dict[str, t.Any]]) -> Condition:
     """
     The ElemMatch operator matches documents that contain an array field with at
     least one element that matches all the specified query criteria.
     """
-    new_condition = {}
+    new_condition: dict[str, t.Any] = {}
     for condition in conditions:
         if isinstance(condition, (Condition, Group)):
             condition = condition.to_dict()
@@ -48,7 +48,7 @@ def ElemMatch(q, *conditions):
     return Condition(q._path, new_condition, "$elemMatch")
 
 
-def Exists(q, value):
+def Exists(q: Q, value: bool) -> Condition:
     """
     When exists is True, Exists matches the documents that contain the field,
     including documents where the field value is null. If exists is False, the
@@ -57,7 +57,7 @@ def Exists(q, value):
     return Condition(q._path, value, "$exists")
 
 
-def In(q, value):
+def In(q: Q, value: list[t.Any]) -> Condition:
     """
     The In operator selects the documents where the value of a field equals any
     value in the specified list.
@@ -65,7 +65,7 @@ def In(q, value):
     return Condition(q._path, to_refs(value), "$in")
 
 
-def Not(condition):
+def Not(condition: Condition) -> Condition:
     """
     Not performs a logical NOT operation on the specified condition and selects
     the documents that do not match. This includes documents that do not contain
@@ -74,7 +74,7 @@ def Not(condition):
     return Condition(condition.q, {condition.operator: condition.value}, "$not")
 
 
-def NotIn(q, value):
+def NotIn(q: Q, value: list[t.Any]) -> Condition:
     """
     The NotIn operator selects documents where the field value is not in the
     specified list or the field does not exists.
@@ -82,7 +82,7 @@ def NotIn(q, value):
     return Condition(q._path, to_refs(value), "$nin")
 
 
-def Size(q, value):
+def Size(q: Q, value: int) -> Condition:
     """
     The Size operator matches any list with the number of elements specified by
     size.
@@ -90,7 +90,7 @@ def Size(q, value):
     return Condition(q._path, value, "$size")
 
 
-def Type(q, value):
+def Type(q: Q, value: int) -> Condition:
     """
     Type selects documents where the value of the field is an instance of the
     specified BSON type.
@@ -132,7 +132,7 @@ class Nor(Group):
 # Sorting
 
 
-def SortBy(*qs):
+def SortBy(*qs: Q) -> list[tuple[str, int]]:
     """Convert a list of Q objects into list of sort instructions"""
 
     sort = []

@@ -3,9 +3,9 @@ Support for paginating specs.
 """
 
 import math
+import typing as t
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Generator, Generic, Optional, TypeVar, Union
 
 from .base import SpecBase, to_refs
 from .query import Condition, Group
@@ -19,8 +19,8 @@ __all__ = (
 )
 
 
-T = TypeVar("T")
-TSpec = TypeVar("TSpec", bound=SpecBase)
+T = t.TypeVar("T")
+TSpec = t.TypeVar("TSpec", bound=SpecBase[t.Any])
 
 
 class InvalidPage(Exception):
@@ -30,7 +30,7 @@ class InvalidPage(Exception):
 
 
 @dataclass
-class Page(Generic[T]):
+class Page(t.Generic[T]):
     """
     A class to represent one page of results.
     """
@@ -46,23 +46,23 @@ class Page(Generic[T]):
     items: list[T]
     """The results/specs for this page"""
 
-    next: Optional[int]
+    next: t.Optional[int]
     """Next page number"""
 
-    prev: Optional[int]
+    prev: t.Optional[int]
     """Previous page number"""
 
     def __getitem__(self, i: int) -> T:
         return self.items[i]
 
-    def __iter__(self):
+    def __iter__(self) -> t.Iterator[T]:
         for item in self.items:
             yield item
 
     def __len__(self) -> int:
         return len(self.items)
 
-    def get_offset(self, item: Any) -> int:
+    def get_offset(self, item: t.Any) -> int:
         """Return the offset for an item in the page"""
         return self.offset + self.items.index(item)
 
@@ -71,7 +71,7 @@ class Page(Generic[T]):
 
 
 @dataclass
-class Paginator(Generic[TSpec]):
+class Paginator(t.Generic[TSpec]):
     """
     A pagination class for slicing query results into pages. This class is
     designed to work with Spec classes.
@@ -80,7 +80,7 @@ class Paginator(Generic[TSpec]):
     spec_cls: type[TSpec]
     """The spec class results are being paginated for"""
 
-    filter: Optional[Union[dict[str, Any], Condition, Group]] = None
+    filter: t.Optional[t.Union[dict[str, t.Any], Condition, Group]] = None
     """The filter applied when selecting results from the database"""
 
     per_page: int = 20
@@ -93,10 +93,10 @@ class Paginator(Generic[TSpec]):
         results.
     """
 
-    filter_kwargs: Any = None
+    filter_kwargs: t.Any = None
     """Any additional filter arguments applied when selecting results such as sort and projection"""
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         # flattern the filter at this point which effectively deep copies.
         if isinstance(self.filter, (Condition, Group)):
             self.filter = self.filter.to_dict()
@@ -136,7 +136,7 @@ class Paginator(Generic[TSpec]):
         # Build the page
         return Page(offset=filter_args["skip"], number=page_number, items=items, next=next, prev=prev)
 
-    def __iter__(self) -> Generator[Page[TSpec], Any, Any]:
+    def __iter__(self) -> t.Generator[Page[TSpec], t.Any, t.Any]:
         for page_number in self._page_numbers:
             yield self[page_number]
 

@@ -66,29 +66,29 @@ class MonitoredDragon(Dragon):
     modified: Optional[datetime] = None
 
     @staticmethod
-    def timestamp_insert(sender, frames):
+    def timestamp_insert(sender, specs):
         """
         Timestamp the created and modified fields for all documents. This method
-        should be bound to a frame class like so:
+        should be bound to a spec class like so:
 
         ```
-        MyFrameClass.listen('insert', MyFrameClass.timestamp_insert)
+        MySpecClass.listen('insert', MySpecClass.timestamp_insert)
         ```
         """
-        for frame in frames:
+        for spec in specs:
             timestamp = datetime.now(timezone.utc)
-            frame.created = timestamp
-            frame.modified = timestamp
+            spec.created = timestamp
+            spec.modified = timestamp
 
     @staticmethod
-    def timestamp_update(sender, frames):
+    def timestamp_update(sender, specs):
         """
         Timestamp the modified field for all documents. This method should be
-        bound to a frame class like so:
+        bound to a spec class like so:
 
         ```
-        MyFrameClass.listen('update', MyFrameClass.timestamp_update)
+        MySpecClass.listen('update', MySpecClass.timestamp_update)
         ```
         """
-        for frame in frames:
-            frame.modified = datetime.now(timezone.utc)
+        for spec in specs:
+            spec.modified = datetime.now(timezone.utc)

@@ -1,9 +1,9 @@
-from typing import Any
+import typing as t
 
 __all__ = ["deep_merge"]
 
 
-def deep_merge(source: dict[str, Any], dest: dict[str, Any]) -> None:
+def deep_merge(source: dict[str, t.Any], dest: dict[str, t.Any]) -> None:
     """
     Deep merges source dict into dest dict.
 

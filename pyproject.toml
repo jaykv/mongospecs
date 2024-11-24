@@ -1,9 +1,9 @@
 [tool.poetry]
 name = "mongospecs"
-version = "0.1.0"
+version = "0.1.1"
 description = "simple mongo ODM with support for msgspec, pydantic, and attrs"
 authors = ["Jay <jay.github0@gmail.com>"]
-repository = "https://github.com/jaykv/mongospec"
+repository = "https://github.com/jaykv/mongospecs"
 readme = "README.md"
 packages = [{include = "mongospecs"}]
 
@@ -45,7 +45,7 @@ ignore-init-module-imports = true
 ignore = ["F811"]
 
 [tool.mypy]
-#plugins = ["pydantic.mypy"]
+plugins = ["pydantic.mypy"]
 follow_imports = "silent"
 ignore_missing_imports = true
 show_error_codes = true

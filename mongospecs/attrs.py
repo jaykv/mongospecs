@@ -16,7 +16,7 @@ __all__ = ["Spec", "SubSpec"]
 T = t.TypeVar("T")
 
 
-def attrs_serializer(inst: type, field: attrs.Attribute, value: t.Any) -> t.Any:
+def attrs_serializer(inst: type, field: attrs.Attribute, value: t.Any) -> t.Any:  # type: ignore[type-arg]
     if type(value) == date:
         return str(value)
     elif isinstance(value, ObjectId):
@@ -27,7 +27,7 @@ def attrs_serializer(inst: type, field: attrs.Attribute, value: t.Any) -> t.Any:
 
 
 @attrs.define(kw_only=True)
-class Spec(SpecBase):
+class Spec(SpecBase[t.Any]):
     _id: t.Optional[ObjectId] = attrs.field(default=None, alias="_id", repr=True)  # type: ignore[assignment]
 
     @property
@@ -40,7 +40,7 @@ class Spec(SpecBase):
 
     @classmethod
     def get_fields(cls) -> set[str]:
-        return {f.name for f in attrs.fields(cls)}  # type: ignore[misc]
+        return {f.name for f in attrs.fields(cls)}
 
     def encode(self, **encode_kwargs: t.Any) -> bytes:
         return msgspec.json.encode(self, **encode_kwargs) if encode_kwargs else MongoEncoder.encode(self)
@@ -66,7 +66,7 @@ class Spec(SpecBase):
 class SubSpec(SubSpecBase):
     _parent: t.ClassVar[t.Any] = Spec
 
-    def get(self, name, default=None):  # -> Any:
+    def get(self, name: str, default: t.Any = None) -> t.Any:
         return self.to_dict().get(name, default)
 
     def to_dict(self) -> dict[str, t.Any]:
@@ -78,7 +78,7 @@ class AttrsAdapter(AttrsInstance, SpecProtocol): ...
 
 class AdapterBuilder:
     def __call__(
-        self, obj: type[AttrsInstance], *, collection: str, client: t.Optional[MongoClient] = None, **kwds: t.Any
+        self, obj: type[AttrsInstance], *, collection: str, client: t.Optional[MongoClient[t.Any]] = None, **kwds: t.Any
     ) -> t.Any:
         @attrs.define(kw_only=True)
         class BuiltSpecAdapter(Spec, obj):  # type: ignore
@@ -89,7 +89,7 @@ class AdapterBuilder:
         BuiltSpecAdapter.__doc__ = obj.__doc__
         if client:
             BuiltSpecAdapter._client = client
-        return BuiltSpecAdapter  # type: ignore
+        return BuiltSpecAdapter
 
 
 SpecAdapter = AdapterBuilder()

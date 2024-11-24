@@ -11,7 +11,7 @@ from .se import MongoEncoder, mongo_dec_hook, mongo_enc_hook
 __all__ = ["Spec", "SubSpec"]
 
 
-class Spec(msgspec.Struct, SpecBase, kw_only=True):
+class Spec(msgspec.Struct, SpecBase[t.Any], kw_only=True):
     _id: t.Union[ObjectId, msgspec.UnsetType] = msgspec.field(name="_id", default=msgspec.UNSET)  # type: ignore[assignment]
     _empty_type: t.ClassVar[t.Any] = msgspec.UNSET
 
@@ -48,7 +48,7 @@ class Spec(msgspec.Struct, SpecBase, kw_only=True):
 class SubSpec(msgspec.Struct, SubSpecBase, kw_only=True, dict=True):
     _parent: t.ClassVar[t.Any] = Spec
 
-    def get(self, name, default=None):  # -> Any:
+    def get(self, name: str, default: t.Any = None) -> t.Any:
         return self.to_dict().get(name, default)
 
     def to_dict(self) -> dict[str, t.Any]:
@@ -64,7 +64,12 @@ class MsgspecAdapter(SpecProtocol):
 
 class AdapterBuilder:
     def __call__(
-        self, obj: type[msgspec.Struct], *, collection: str, client: t.Optional[MongoClient] = None, **kwds: t.Any
+        self,
+        obj: type[msgspec.Struct],
+        *,
+        collection: str,
+        client: t.Optional[MongoClient[t.Any]] = None,
+        **kwds: t.Any,
     ) -> t.Any:
         class BuiltSpecAdapter(SpecBase, obj):  # type: ignore
             _id: t.Union[EmptyObject, ObjectId] = msgspec.field(default=Empty)

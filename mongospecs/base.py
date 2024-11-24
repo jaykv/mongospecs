@@ -1,5 +1,5 @@
 import typing as t
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from contextlib import contextmanager
 from copy import deepcopy
 

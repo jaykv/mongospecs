@@ -138,4 +138,4 @@ class AdapterBuilder(t.Generic[T]):
         return BuiltSpecAdapter
 
 
-SpecAdapter = AdapterBuilder()
+SpecAdapter: AdapterBuilder[BaseModel] = AdapterBuilder()

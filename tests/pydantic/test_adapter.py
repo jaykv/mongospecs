@@ -8,16 +8,19 @@ from pydantic import BaseModel
 from pymongo import ReadPreference
 
 from mongospecs import ASC, DESC, Empty, In, Q
-from mongospecs.pydantic import SpecAdapter
+from mongospecs.pydantic import Spec, SpecAdapter
 
 from .adapter_models import ComplexDragon, Dragon, Inventory, Lair, MonitoredDragon
 from .fixtures import mongo_client  # noqa
 
-DragonSpec = SpecAdapter(Dragon, collection="dragon")
 LairSpec = SpecAdapter(Lair, collection="lair")
 ComplexDragonSpec = SpecAdapter(ComplexDragon, collection="complexdragon")
 ComplexDragonSpec._default_projection = {"lair": {"$ref": LairSpec, "inventory": {"$sub": Inventory}}}
 MonitoredDragonSpec = SpecAdapter(MonitoredDragon, collection="monitoreddragon")
+
+
+class DragonSpec(Dragon, Spec):
+    _collection = "dragon"
 
 
 @pytest.fixture
@@ -90,6 +93,7 @@ def test_spec():
 
     # Passing initial values
     burt = DragonSpec(name="Burt", breed="Cold-drake")
+
     assert burt.name == "Burt"
     assert burt.breed == "Cold-drake"
     assert isinstance(burt, Dragon)

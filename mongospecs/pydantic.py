@@ -107,6 +107,9 @@ class SubSpec(BaseModel, SubSpecBase):
         return self.model_dump()
 
 
+T = t.TypeVar("T", bound=BaseModel)
+
+
 class PydanticAdapter(Spec, BaseModel):
     def __init__(self, **data: t.Any) -> None:
         """Create a new model by parsing and validating input data from keyword arguments.
@@ -120,12 +123,9 @@ class PydanticAdapter(Spec, BaseModel):
         ...
 
 
-T = t.TypeVar("T", bound=PydanticAdapter)
-
-
-class AdapterBuilder:
+class AdapterBuilder(t.Generic[T]):
     def __call__(
-        self, obj: type[BaseModel], *, collection: str, client: t.Optional[MongoClient[t.Any]] = None, **kwds: t.Any
+        self, obj: type[T], *, collection: str, client: t.Optional[MongoClient[t.Any]] = None, **kwds: t.Any
     ) -> t.Any:
         class BuiltSpecAdapter(obj, Spec):  # type: ignore
             pass

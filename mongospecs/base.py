@@ -4,236 +4,26 @@ from contextlib import contextmanager
 from copy import deepcopy
 
 from blinker import signal
-from bson import ObjectId
+from bson import BSON, ObjectId
 from pymongo import MongoClient, UpdateOne
 from pymongo.collection import Collection
 from pymongo.database import Database
-from pymongo.typings import _DocumentType
 from typing_extensions import Self
 
 from mongospecs.empty import Empty, EmptyObject
 
 from .query import Condition, Group
 
-Specs = t.Sequence["SpecBase[t.Any]"]
-RawDocuments = t.Sequence[_DocumentType]
-SpecsOrRawDocuments = t.Union[Specs, RawDocuments[t.Any]]
 FilterType = t.Union[None, t.Mapping[str, t.Any], Condition, Group]
+SpecDocumentType = t.TypeVar("SpecDocumentType", bound=t.Mapping[str, t.Any])
+Specs = t.Sequence["SpecBase[SpecDocumentType]"]
+RawDocuments = t.Sequence[SpecDocumentType]
+SpecsOrRawDocuments = t.Sequence[t.Union["SpecBase[SpecDocumentType]", SpecDocumentType]]
 
 T = t.TypeVar("T")
 
 
-class SpecProtocol(t.Protocol):
-    _client: t.ClassVar[t.Optional[MongoClient[t.Any]]] = None
-    _db: t.ClassVar[t.Optional[Database[t.Any]]] = None
-    _collection: t.ClassVar[t.Optional[str]] = None
-    _collection_context: t.ClassVar[t.Optional[Collection[t.Any]]] = None
-    _default_projection: t.ClassVar[dict[str, t.Any]] = {}
-    _empty_type: t.ClassVar[t.Any] = Empty
-    _id: t.Union[EmptyObject, ObjectId]
-
-    @classmethod
-    def get_fields(cls) -> set[str]: ...
-
-    @classmethod
-    def from_document(cls, document: dict[str, t.Any]) -> Self: ...
-
-    def get(self, name: str, default: t.Any = None) -> t.Any: ...
-
-    def encode(self, **encode_kwargs: t.Any) -> bytes: ...
-
-    def decode(self, data: t.Any, **decode_kwargs: t.Any) -> t.Any: ...
-
-    def to_json_type(self) -> dict[str, t.Any]: ...
-
-    def to_dict(self) -> dict[str, t.Any]: ...
-
-    def to_tuple(self) -> tuple[t.Any, ...]: ...
-
-    # Operations
-    def insert(self) -> None:
-        """Insert this document"""
-        ...
-
-    def unset(self, *fields: t.Any) -> None:
-        """Unset the given list of fields for this document."""
-        ...
-
-    def update(self, *fields: t.Any) -> None:
-        """
-        Update this document. Optionally a specific list of fields to update can
-        be specified.
-        """
-        ...
-
-    def upsert(self, *fields: t.Any) -> None:
-        """
-        Update or Insert this document depending on whether it exists or not.
-        The presense of an `_id` value in the document is used to determine if
-        the document exists.
-
-        NOTE: This method is not the same as specifying the `upsert` flag when
-        calling MongoDB. When called for a document with an `_id` value, this
-        method will call the database to see if a record with that Id exists,
-        if not it will call `insert`, if so it will call `update`. This
-        operation is therefore not atomic and much slower than the equivalent
-        MongoDB operation (due to the extra call).
-        """
-        ...
-
-    def delete(self) -> None:
-        """Delete this document"""
-        ...
-
-    @classmethod
-    def find(cls, filter: FilterType = None, **kwargs: t.Any) -> list[t.Mapping[str, t.Any]]:
-        """Return a list of documents matching the filter"""
-        ...
-
-    @classmethod
-    def find_one(cls, filter: FilterType = None, **kwargs: t.Any) -> t.Mapping[str, t.Any]:
-        """Return the first document matching the filter"""
-        ...
-
-    def reload(self, **kwargs: t.Any) -> None:
-        """Reload the document"""
-        ...
-
-    @classmethod
-    def insert_many(cls, documents: SpecsOrRawDocuments) -> Specs:
-        """Insert a list of documents"""
-        ...
-
-    @classmethod
-    def update_many(cls, documents: SpecsOrRawDocuments, *fields: t.Any) -> None:
-        """
-        Update multiple documents. Optionally a specific list of fields to
-        update can be specified.
-        """
-        ...
-
-    @classmethod
-    def unset_many(cls, documents: SpecsOrRawDocuments, *fields: t.Any) -> None:
-        """Unset the given list of fields for given documents."""
-        ...
-
-    @classmethod
-    def delete_many(cls, documents: SpecsOrRawDocuments) -> None:
-        """Delete multiple documents"""
-        ...
-
-    # Querying
-
-    @classmethod
-    def by_id(cls, id: ObjectId, **kwargs: t.Any) -> t.Optional[Self]:
-        """Get a document by ID"""
-        ...
-
-    @classmethod
-    def count(cls, filter: FilterType = None, **kwargs: t.Any) -> int:
-        """Return a count of documents matching the filter"""
-        ...
-
-    @classmethod
-    def ids(cls, filter: FilterType = None, **kwargs: t.Any) -> list[ObjectId]:
-        """Return a list of Ids for documents matching the filter"""
-        ...
-
-    @classmethod
-    def one(cls, filter: FilterType = None, **kwargs: t.Any) -> t.Optional[Self]:
-        """Return the first spec object matching the filter"""
-        ...
-
-    @classmethod
-    def many(cls, filter: FilterType = None, **kwargs: t.Any) -> list[Self]:
-        """Return a list of spec objects matching the filter"""
-        ...
-
-    @classmethod
-    def get_collection(cls) -> Collection[t.Any]:
-        """Return a reference to the database collection for the class"""
-        ...
-
-    @classmethod
-    def get_db(cls) -> Database[t.Any]:
-        """Return the database for the collection"""
-        ...
-
-    @classmethod
-    @contextmanager
-    def with_options(cls, **options: t.Any) -> t.Generator[t.Any, t.Any, None]: ...
-
-    @classmethod
-    def _path_to_value(cls, path: str, parent_dict: dict[str, t.Any]) -> t.Any:
-        """Return a value from a dictionary at the given path"""
-        ...
-
-    @classmethod
-    def _path_to_keys(cls, path: str) -> list[str]:
-        """Return a list of keys for a given path"""
-        ...
-
-    @classmethod
-    def _ensure_specs(cls, documents: SpecsOrRawDocuments) -> Specs:
-        """
-        Ensure all items in a list are specs by converting those that aren't.
-        """
-        ...
-
-    @classmethod
-    def _apply_sub_specs(cls, documents: RawDocuments[t.Any], subs: dict[str, t.Any]) -> None:
-        """Convert embedded documents to sub-specs for one or more documents"""
-        ...
-
-    @classmethod
-    def _flatten_projection(
-        cls, projection: dict[str, t.Any]
-    ) -> tuple[dict[str, t.Any], dict[str, t.Any], dict[str, t.Any]]:
-        """
-        Flatten a structured projection (structure projections support for
-        projections of (to be) dereferenced fields.
-        """
-        ...
-
-    @classmethod
-    def _dereference(cls, documents: RawDocuments[t.Any], references: dict[str, t.Any]) -> None:
-        """Dereference one or more documents"""
-        ...
-
-    # Signals
-    @classmethod
-    def listen(cls, event: str, func: t.Callable[..., t.Any]) -> None:
-        """Add a callback for a signal against the class"""
-        ...
-
-    @classmethod
-    def stop_listening(cls, event: str, func: t.Callable[..., t.Any]) -> None:
-        """Remove a callback for a signal against the class"""
-        ...
-
-    # Integrity helpers
-
-    @classmethod
-    def cascade(cls, ref_cls: "SpecProtocol", field: str, specs: Specs) -> None:
-        """Apply a cascading delete (does not emit signals)"""
-        ...
-
-    @classmethod
-    def nullify(cls, ref_cls: "SpecProtocol", field: str, specs: Specs) -> None:
-        """Nullify a reference field (does not emit signals)"""
-        ...
-
-    @classmethod
-    def pull(cls, ref_cls: "SpecProtocol", field: str, specs: Specs) -> None:
-        """Pull references from a list field (does not emit signals)"""
-        ...
-
-    def __eq__(self, other: t.Any) -> bool: ...
-
-    def __lt__(self, other: t.Any) -> t.Any: ...
-
-
-class SpecBase(t.Generic[_DocumentType]):
+class SpecBase(t.Generic[SpecDocumentType]):
     _client: t.ClassVar[t.Optional[MongoClient[t.Any]]] = None
     _db: t.ClassVar[t.Optional[Database[t.Any]]] = None
     _collection: t.ClassVar[t.Optional[str]] = None
@@ -252,9 +42,9 @@ class SpecBase(t.Generic[_DocumentType]):
         return cls(**document)
 
     @classmethod
-    @abstractmethod
     def from_raw_bson(cls, raw_bson: t.Any) -> t.Any:
-        raise NotImplementedError
+        decoded_data = BSON.decode(raw_bson)
+        return cls(**decoded_data)
 
     def get(self, name: str, default: t.Any = None) -> t.Any:
         return self.to_dict().get(name, default)
@@ -275,7 +65,6 @@ class SpecBase(t.Generic[_DocumentType]):
     def to_dict(self) -> dict[str, t.Any]:
         raise NotImplementedError
 
-    @abstractmethod
     def to_tuple(self) -> tuple[t.Any, ...]:
         raise NotImplementedError
 
@@ -385,7 +174,7 @@ class SpecBase(t.Generic[_DocumentType]):
         signal("deleted").send(self.__class__, specs=[self])
 
     @classmethod
-    def find(cls, filter: FilterType = None, **kwargs: t.Any) -> list[_DocumentType]:
+    def find(cls, filter: FilterType = None, **kwargs: t.Any) -> list[SpecDocumentType]:
         """Return a list of documents matching the filter"""
         # Flatten the projection
         kwargs["projection"], references, subs = cls._flatten_projection(
@@ -413,7 +202,7 @@ class SpecBase(t.Generic[_DocumentType]):
         return documents
 
     @classmethod
-    def find_one(cls, filter: FilterType = None, **kwargs: t.Any) -> _DocumentType:
+    def find_one(cls, filter: FilterType = None, **kwargs: t.Any) -> SpecDocumentType:
         """Return the first document matching the filter"""
         # Flatten the projection
         kwargs["projection"], references, subs = cls._flatten_projection(
@@ -424,12 +213,12 @@ class SpecBase(t.Generic[_DocumentType]):
         if isinstance(filter, (Condition, Group)):
             filter = filter.to_dict()
 
-        coll: Collection[_DocumentType] = cls.get_collection()
+        coll: Collection[SpecDocumentType] = cls.get_collection()
         document = coll.find_one(to_refs(filter), **kwargs)
 
         # Make sure we found a document
         if not document:
-            return t.cast(_DocumentType, {})
+            return t.cast(SpecDocumentType, {})
 
         # Dereference the document (if required)
         if references:
@@ -448,7 +237,7 @@ class SpecBase(t.Generic[_DocumentType]):
             setattr(self, field, spec[field])
 
     @classmethod
-    def insert_many(cls, documents: SpecsOrRawDocuments) -> Specs:
+    def insert_many(cls, documents: list[t.Union["SpecBase", SpecDocumentType]]) -> Specs:
         """Insert a list of documents"""
         # Ensure all documents have been converted to specs
         specs = cls._ensure_specs(documents)
@@ -661,13 +450,13 @@ class SpecBase(t.Generic[_DocumentType]):
         return t.cast(Collection[t.Any], getattr(cls.get_db(), cls._collection or cls.__name__))
 
     @classmethod
-    def get_db(cls) -> Database[_DocumentType]:
+    def get_db(cls) -> Database[SpecDocumentType]:
         """Return the database for the collection"""
         if not cls._client:
             raise NotImplementedError("_client is not setup yet")
         if cls._db is not None:
-            return t.cast(Database[_DocumentType], getattr(cls._client, cls._db.name))
-        return t.cast(Database[_DocumentType], cls._client.get_default_database())
+            return t.cast(Database[SpecDocumentType], getattr(cls._client, cls._db.name))
+        return t.cast(Database[SpecDocumentType], cls._client.get_default_database())
 
     @classmethod
     @contextmanager
@@ -720,7 +509,7 @@ class SpecBase(t.Generic[_DocumentType]):
         return specs
 
     @classmethod
-    def _apply_sub_specs(cls, documents: RawDocuments[t.Any], subs: dict[str, t.Any]) -> None:
+    def _apply_sub_specs(cls, documents: RawDocuments, subs: dict[str, t.Any]) -> None:
         """Convert embedded documents to sub-specs for one or more documents"""
 
         # Dereference each reference
@@ -920,19 +709,19 @@ class SpecBase(t.Generic[_DocumentType]):
     # Integrity helpers
 
     @classmethod
-    def cascade(cls, ref_cls: "SpecBase[_DocumentType]", field: str, specs: Specs) -> None:
+    def cascade(cls, ref_cls: "SpecBase[SpecDocumentType]", field: str, specs: Specs) -> None:
         """Apply a cascading delete (does not emit signals)"""
         ids = [to_refs(getattr(f, field)) for f in specs if hasattr(f, field)]
         ref_cls.get_collection().delete_many({"_id": {"$in": ids}})
 
     @classmethod
-    def nullify(cls, ref_cls: "SpecBase[_DocumentType]", field: str, specs: Specs) -> None:
+    def nullify(cls, ref_cls: "SpecBase[SpecDocumentType]", field: str, specs: Specs) -> None:
         """Nullify a reference field (does not emit signals)"""
         ids = [to_refs(f) for f in specs]
         ref_cls.get_collection().update_many({field: {"$in": ids}}, {"$set": {field: None}})
 
     @classmethod
-    def pull(cls, ref_cls: "SpecBase[_DocumentType]", field: str, specs: Specs) -> None:
+    def pull(cls, ref_cls: "SpecBase[SpecDocumentType]", field: str, specs: Specs) -> None:
         """Pull references from a list field (does not emit signals)"""
         ids = [to_refs(f) for f in specs]
         ref_cls.get_collection().update_many({field: {"$in": ids}}, {"$pull": {field: {"$in": ids}}})

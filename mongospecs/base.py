@@ -116,10 +116,8 @@ class SpecBase(t.Generic[SpecDocumentType]):
         signal("update").send(self.__class__, specs=[self])
 
         # Check for selective updates
-        if len(fields) > 0:
-            document = {}
-            for field in fields:
-                document[field] = self._path_to_value(field, self_document)
+        if fields:
+            document = {field: self._path_to_value(field, self_document) for field in fields}
         else:
             document = self_document
 
@@ -282,7 +280,7 @@ class SpecBase(t.Generic[SpecDocumentType]):
         # Prepare the documents to be updated
 
         # Check for selective updates
-        if len(fields) > 0:
+        if fields:
             _documents = []
             for spec in specs:
                 document = {"_id": spec._id}
@@ -316,13 +314,7 @@ class SpecBase(t.Generic[SpecDocumentType]):
         # Send update signal
         signal("update").send(cls, specs=specs)
 
-        # Clear the fields from the documents and build a list of ids to
-        # update.
-        ids = []
-        for spec in specs:
-            if spec._id:
-                ids.append(spec._id)
-
+        ids = [spec._id for spec in specs if spec._id]
         # Build the unset object
         unset = {}
         for field in fields:
@@ -788,7 +780,7 @@ class SubSpecBase:
                 inclusive = False
                 continue
 
-            sub_key = root_key + "." + key
+            sub_key = f"{root_key}.{key}"
 
             if isinstance(value, dict):
                 sub_value = cls._projection_to_paths(sub_key, value)

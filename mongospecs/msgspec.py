@@ -1,33 +1,33 @@
-from typing import Any, ClassVar, Optional, Union
+import typing as t
 
 import msgspec
 from bson import ObjectId
 from pymongo import MongoClient
 
-from .base import SpecBase, SpecProtocol, SubSpecBase
+from .base import SpecBase, SubSpecBase
 from .empty import Empty, EmptyObject
 from .se import MongoEncoder, mongo_dec_hook, mongo_enc_hook
 
 __all__ = ["Spec", "SubSpec"]
 
 
-class Spec(msgspec.Struct, SpecBase, kw_only=True):
-    _id: Union[ObjectId, msgspec.UnsetType] = msgspec.field(name="_id", default=msgspec.UNSET)  # type: ignore[assignment]
-    _empty_type: ClassVar[Any] = msgspec.UNSET
+class Spec(msgspec.Struct, SpecBase[t.Any], kw_only=True):
+    _id: t.Union[ObjectId, msgspec.UnsetType] = msgspec.field(name="_id", default=msgspec.UNSET)  # type: ignore[assignment]
+    _empty_type: t.ClassVar[t.Any] = msgspec.UNSET
 
-    def encode(self, **encode_kwargs: Any) -> bytes:
+    def encode(self, **encode_kwargs: t.Any) -> bytes:
         return msgspec.json.encode(self, **encode_kwargs) if encode_kwargs else MongoEncoder.encode(self)
 
-    def decode(self, data: Any, **decode_kwargs: Any) -> Any:
+    def decode(self, data: t.Any, **decode_kwargs: t.Any) -> t.Any:
         return msgspec.json.decode(data, type=self.__class__, dec_hook=mongo_dec_hook, **decode_kwargs)
 
-    def to_json_type(self) -> Any:
+    def to_json_type(self) -> t.Any:
         return msgspec.to_builtins(self, enc_hook=mongo_enc_hook)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, t.Any]:
         return msgspec.structs.asdict(self)
 
-    def to_tuple(self) -> tuple[Any, ...]:
+    def to_tuple(self) -> tuple[t.Any, ...]:
         return msgspec.structs.astuple(self)
 
     @classmethod
@@ -35,54 +35,59 @@ class Spec(msgspec.Struct, SpecBase, kw_only=True):
         return set(cls.__struct_fields__)
 
     # msgspec Struct includes these by default- so we need to override them
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: t.Any) -> bool:
         if not isinstance(other, self.__class__):
             return False
 
         return self._id == other._id
 
-    def __lt__(self, other: Any) -> Any:
+    def __lt__(self, other: t.Any) -> t.Any:
         return self._id < other._id
 
 
 class SubSpec(msgspec.Struct, SubSpecBase, kw_only=True, dict=True):
-    _parent: ClassVar[Any] = Spec
+    _parent: t.ClassVar[t.Any] = Spec
 
-    def get(self, name, default=None):  # -> Any:
+    def get(self, name: str, default: t.Any = None) -> t.Any:
         return self.to_dict().get(name, default)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, t.Any]:
         return msgspec.structs.asdict(self)
 
 
-class MsgspecAdapter(SpecProtocol):
-    _id: Union[EmptyObject, ObjectId] = msgspec.field(default=Empty)
-    _empty_type: ClassVar[Any] = msgspec.UNSET
+class MsgspecAdapter(SpecBase):
+    _id: t.Union[EmptyObject, ObjectId] = msgspec.field(default=Empty)
+    _empty_type: t.ClassVar[t.Any] = msgspec.UNSET
 
-    def __init__(self, **data: Any) -> None: ...
+    def __init__(self, **data: t.Any) -> None: ...
 
 
 class AdapterBuilder:
     def __call__(
-        self, obj: type[msgspec.Struct], *, collection: str, client: Optional[MongoClient] = None, **kwds: Any
-    ) -> Any:
+        self,
+        obj: type[msgspec.Struct],
+        *,
+        collection: str,
+        client: t.Optional[MongoClient[t.Any]] = None,
+        **kwds: t.Any,
+    ) -> t.Any:
         class BuiltSpecAdapter(SpecBase, obj):  # type: ignore
-            _id: Union[EmptyObject, ObjectId] = msgspec.field(default=Empty)
-            _empty_type: ClassVar[Any] = msgspec.UNSET
+            _id: t.Union[EmptyObject, ObjectId] = msgspec.field(default=Empty)
+            _empty_type: t.ClassVar[t.Any] = msgspec.UNSET
 
-            def encode(self, **encode_kwargs: Any) -> bytes:
+            def encode(self, **encode_kwargs: t.Any) -> bytes:
                 return msgspec.json.encode(self, **encode_kwargs) if encode_kwargs else MongoEncoder.encode(self)
 
-            def decode(self, data: Any, **decode_kwargs: Any) -> Any:
+            def decode(self, data: t.Any, **decode_kwargs: t.Any) -> t.Any:
                 return msgspec.json.decode(data, type=self.__class__, dec_hook=mongo_dec_hook, **decode_kwargs)
 
-            def to_json_type(self) -> Any:
+            def to_json_type(self) -> t.Any:
                 return msgspec.to_builtins(self, enc_hook=mongo_enc_hook)
 
-            def to_dict(self) -> dict[str, Any]:
+            def to_dict(self) -> dict[str, t.Any]:
                 return msgspec.structs.asdict(self)
 
-            def to_tuple(self) -> tuple[Any, ...]:
+            def to_tuple(self) -> tuple[t.Any, ...]:
                 return msgspec.structs.astuple(self)
 
             @classmethod
@@ -90,13 +95,13 @@ class AdapterBuilder:
                 return set(cls.__struct_fields__)
 
             # msgspec Struct includes these by default- so we need to override them
-            def __eq__(self, other: Any) -> bool:
+            def __eq__(self, other: t.Any) -> bool:
                 if not isinstance(other, self.__class__):
                     return False
 
                 return self._id == other._id
 
-            def __lt__(self, other: Any) -> Any:
+            def __lt__(self, other: t.Any) -> t.Any:
                 return self._id < other._id
 
         BuiltSpecAdapter.__name__ = f"{obj.__name__}SpecAdapter"

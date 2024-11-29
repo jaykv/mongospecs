@@ -15,11 +15,11 @@ def mongo_client(request):
     """Connect to the test database"""
 
     # Connect to mongodb and create a test database
-    Spec._client = MongoClient("mongodb://localhost:27017/mongoframes_test")
+    Spec._client = MongoClient("mongodb://localhost:27017/mongospecs_test")
 
     yield Spec._client
 
-    Spec._client.drop_database("mongoframes_test")
+    Spec._client.drop_database("mongospecs_test")
     del Spec._client
 
 

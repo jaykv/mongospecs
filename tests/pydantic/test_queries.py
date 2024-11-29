@@ -128,14 +128,14 @@ def test_sort_by():
 
 
 def test_to_refs():
-    """Should convert all Frame instances within a value to Ids"""
+    """Should convert all Spec instances within a value to Ids"""
 
     ids = [ObjectId()] * 2
-    # Convert a single Frame instance
+    # Convert a single Spec instance
     assert to_refs(Spec(_id=ids[0])) == ids[0]
 
-    # Convert a list of Frame instances
+    # Convert a list of Spec instances
     assert to_refs([Spec(_id=ids[0]), Spec(_id=ids[1])]) == ids
 
-    # Convert a dictionary of Frame instances
+    # Convert a dictionary of Spec instances
     assert to_refs({1: Spec(_id=ids[0]), 2: Spec(_id=ids[1])}) == {1: ids[0], 2: ids[1]}

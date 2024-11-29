@@ -1,4 +1,4 @@
-from typing import Annotated, Any, Callable, ClassVar, Optional, TypeVar, Union, cast
+import typing as t
 
 from blinker import signal
 from bson import ObjectId
@@ -6,7 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic_core import core_schema
 from pymongo import MongoClient
 
-from .base import EmptyObject, SpecBase, SubSpecBase
+from .base import SpecBase, SubSpecBase
+from .empty import EmptyObject
 
 __all__ = ["Spec", "SubSpec"]
 
@@ -17,8 +18,8 @@ class _ObjectIdPydanticAnnotation:
     @classmethod
     def __get_pydantic_core_schema__(
         cls,
-        _source_type: Any,
-        _handler: Callable[[Any], core_schema.CoreSchema],
+        _source_type: t.Any,
+        _handler: t.Callable[[t.Any], core_schema.CoreSchema],
     ) -> core_schema.CoreSchema:
         def validate_from_str(input_value: str) -> ObjectId:
             return ObjectId(input_value)
@@ -33,31 +34,31 @@ class _ObjectIdPydanticAnnotation:
         )
 
 
-PyObjectId = Annotated[ObjectId, _ObjectIdPydanticAnnotation]
+PyObjectId = t.Annotated[ObjectId, _ObjectIdPydanticAnnotation]
 
 
-class Spec(BaseModel, SpecBase):
+class Spec(BaseModel, SpecBase[t.Any]):
     model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 
-    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+    id: t.Optional[PyObjectId] = Field(default=None, alias="_id")
 
     @classmethod
-    def from_document(cls, document: dict[str, Any]) -> "Spec":
+    def from_document(cls, document: dict[str, t.Any]) -> "Spec":
         return cls.model_construct(**document)
 
     @property
-    def _id(self) -> Union[EmptyObject, ObjectId]:
-        return cast(Union[EmptyObject, ObjectId], self.id)
+    def _id(self) -> t.Union[EmptyObject, ObjectId]:
+        return t.cast(t.Union[EmptyObject, ObjectId], self.id)
 
     @_id.setter
     def _id(self, value: ObjectId) -> None:
         self.id = value
 
-    def unset(self, *fields: Any) -> None:
+    def unset(self, *fields: t.Any) -> None:
         """Unset the given list of fields for this document."""
 
         # Send update signal
-        signal("update").send(self.__class__, frames=[self])
+        signal("update").send(self.__class__, specs=[self])
 
         # Clear the fields from the document and build the unset object
         unset = {}
@@ -73,18 +74,18 @@ class Spec(BaseModel, SpecBase):
         self.get_collection().update_one({"_id": self._id}, {"$unset": unset})
 
         # Send updated signal
-        signal("updated").send(self.__class__, frames=[self])
+        signal("updated").send(self.__class__, specs=[self])
 
-    def encode(self, **encode_kwargs: Any) -> bytes:
+    def encode(self, **encode_kwargs: t.Any) -> bytes:
         return str.encode(self.model_dump_json(**encode_kwargs))
 
-    def decode(self, data: Any, **decode_kwargs: Any) -> Any:
+    def decode(self, data: t.Any, **decode_kwargs: t.Any) -> t.Any:
         return self.__class__.model_validate_json(data, **decode_kwargs)
 
-    def to_json_type(self) -> Any:
+    def to_json_type(self) -> t.Any:
         return self.model_dump(mode="json", by_alias=True, exclude_unset=True)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, t.Any]:
         copy_dict = self.__dict__.copy()
         copy_dict["_id"] = copy_dict.pop("id")
         return copy_dict
@@ -93,21 +94,24 @@ class Spec(BaseModel, SpecBase):
 
     @classmethod
     def get_fields(cls) -> set[str]:
-        return set(cls.model_fields.keys())
+        return set(cls.model_fields.keys())  # type: ignore[attr-defined]
 
 
 class SubSpec(BaseModel, SubSpecBase):
-    _parent: ClassVar[Any] = Spec
+    _parent: t.ClassVar[t.Any] = Spec
 
-    def get(self, name: str, default: Any = None) -> Any:
+    def get(self, name: str, default: t.Any = None) -> t.Any:
         return self.to_dict().get(name, default)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, t.Any]:
         return self.model_dump()
 
 
+T = t.TypeVar("T", bound=BaseModel)
+
+
 class PydanticAdapter(Spec, BaseModel):
-    def __init__(self, **data: Any) -> None:
+    def __init__(self, **data: t.Any) -> None:
         """Create a new model by parsing and validating input data from keyword arguments.
 
         Raises [ValidationError][pydantic_core.ValidationError] if the input data cannot
@@ -119,13 +123,10 @@ class PydanticAdapter(Spec, BaseModel):
         ...
 
 
-T = TypeVar("T", bound=PydanticAdapter)
-
-
-class AdapterBuilder:
+class AdapterBuilder(t.Generic[T]):
     def __call__(
-        self, obj: type[BaseModel], *, collection: str, client: Optional[MongoClient] = None, **kwds: Any
-    ) -> Any:
+        self, obj: type[T], *, collection: str, client: t.Optional[MongoClient[t.Any]] = None, **kwds: t.Any
+    ) -> t.Any:
         class BuiltSpecAdapter(obj, Spec):  # type: ignore
             pass
 
@@ -137,4 +138,4 @@ class AdapterBuilder:
         return BuiltSpecAdapter
 
 
-SpecAdapter = AdapterBuilder()
+SpecAdapter: AdapterBuilder[BaseModel] = AdapterBuilder()

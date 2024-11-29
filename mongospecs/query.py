@@ -2,7 +2,7 @@
 A set of helpers to simplify the creation of MongoDB queries.
 """
 
-from typing import Any
+import typing as t
 
 __all__ = [
     # Queries
@@ -16,17 +16,17 @@ class Condition:
     A query condition of the form `{path: {operator: value}}`.
     """
 
-    def __init__(self, q, value, operator):
+    def __init__(self, q: t.Optional[str], value: t.Any, operator: str):
         self.q = q
         self.value = value
         self.operator = operator
 
-    def to_dict(self) -> dict[str, dict[str, Any]]:
+    def to_dict(self) -> dict[str, dict[str, t.Any]]:
         """Return a dictionary suitable for use with pymongo as a filter"""
-        if self.operator == "$eq":
-            return {self.q: self.value}
         if self.q is None:
             return {self.operator: self.value}
+        if self.operator == "$eq":
+            return {self.q: self.value}
         return {self.q: {self.operator: self.value}}
 
 
@@ -35,28 +35,28 @@ class QMeta(type):
     Meta-class for query builder.
     """
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> "Q":
         return Q(name)
 
-    def __getitem__(self, name):
+    def __getitem__(self, name: str) -> "Q":
         return Q(name)
 
-    def __eq__(self, other):
+    def __eq__(self, other: t.Any) -> Condition:  # type: ignore[override]
         return Condition(None, other, "$eq")
 
-    def __ge__(self, other):
+    def __ge__(self, other: t.Any) -> Condition:
         return Condition(None, other, "$gte")
 
-    def __gt__(self, other):
+    def __gt__(self, other: t.Any) -> Condition:
         return Condition(None, other, "$gt")
 
-    def __le__(self, other):
+    def __le__(self, other: t.Any) -> Condition:
         return Condition(None, other, "$lte")
 
-    def __lt__(self, other):
+    def __lt__(self, other: t.Any) -> Condition:
         return Condition(None, other, "$lt")
 
-    def __ne__(self, other):
+    def __ne__(self, other: t.Any) -> Condition:  # type: ignore[override]
         return Condition(None, other, "$ne")
 
 
@@ -69,32 +69,32 @@ class Q(metaclass=QMeta):
 
     """
 
-    def __init__(self, path):
+    def __init__(self, path: str):
         self._path = path
 
-    def __eq__(self, other):
+    def __eq__(self, other: t.Any) -> Condition:  # type: ignore[override]
         return Condition(self._path, other, "$eq")
 
-    def __ge__(self, other):
+    def __ge__(self, other: t.Any) -> Condition:
         return Condition(self._path, other, "$gte")
 
-    def __gt__(self, other):
+    def __gt__(self, other: t.Any) -> Condition:
         return Condition(self._path, other, "$gt")
 
-    def __le__(self, other):
+    def __le__(self, other: t.Any) -> Condition:
         return Condition(self._path, other, "$lte")
 
-    def __lt__(self, other):
+    def __lt__(self, other: t.Any) -> Condition:
         return Condition(self._path, other, "$lt")
 
-    def __ne__(self, other):
+    def __ne__(self, other: t.Any) -> Condition:  # type: ignore[override]
         return Condition(self._path, other, "$ne")
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> "Q":
         self._path = "{0}.{1}".format(self._path, name)
         return self
 
-    def __getitem__(self, name):
+    def __getitem__(self, name: str) -> "Q":
         self._path = "{0}.{1}".format(self._path, name)
         return self
 
@@ -107,10 +107,10 @@ class Group:
 
     operator = ""
 
-    def __init__(self, *conditions):
+    def __init__(self, *conditions: t.Any):
         self.conditions = conditions
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, t.Any]:
         """Return a dictionary suitable for use with pymongo as a filter"""
         raw_conditions = []
         for condition in self.conditions:

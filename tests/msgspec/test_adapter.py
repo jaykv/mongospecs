@@ -85,7 +85,7 @@ def test_msgspec_adapter(mongo_client) -> None:
     assert car.to_dict() == {"_id": car._id, "make": "test", "model": "test123", "year": 2000}
 
 
-def test_frame():
+def test_spec():
     """Should create a new Dragon instance"""
 
     # Passing initial values
@@ -107,7 +107,7 @@ def test_dot_notation():
     burt.name = "Fred"
     assert burt.name == "Fred"
 
-    # SubFrame (embedded document get/set)
+    # SubSpec (embedded document get/set)
     inventory = Inventory(gold=1000, skulls=100)
 
     cave = LairSpec(name="Cave", inventory=inventory)
@@ -118,7 +118,7 @@ def test_dot_notation():
 
 
 def test_equal(mongo_client):
-    """Should compare the equality of two Frame instances by Id"""
+    """Should compare the equality of two Spec instances by Id"""
 
     # Create some dragons
     burt = DragonSpec(name="Burt", breed="Cold-drake")
@@ -133,7 +133,7 @@ def test_equal(mongo_client):
 
 
 def test_python_sort(mongo_client):
-    """Should sort a list of Frame instances by their Ids"""
+    """Should sort a list of Spec instances by their Ids"""
 
     # Create some dragons
     burt = DragonSpec(name="Burt", breed="Cold-drake")
@@ -555,7 +555,7 @@ def test_many(mongo_client, example_dataset_many):
 
 
 def test_projection(mongo_client, example_dataset_one):
-    """Should allow references and subframes to be projected"""
+    """Should allow references and subspecs to be projected"""
 
     # Select our complex dragon called burt
     burt = ComplexDragonSpec.one(Q.name == "Burt")
@@ -583,7 +583,7 @@ def test_projection(mongo_client, example_dataset_one):
     assert len(burt.misc.keys()) == 1
     assert burt.misc["cave"].name == "Cave"
 
-    # Test list of sub-frames
+    # Test list of sub-specs
     burt.misc = [inventory]
     burt.update()
     burt = ComplexDragonSpec.one(Q.name == "Burt", projection={"misc": {"$sub": Inventory}})
@@ -593,7 +593,7 @@ def test_projection(mongo_client, example_dataset_one):
     assert len(burt.misc) == 1
     assert burt.misc[0].skulls == 100
 
-    # Test dict of sub-frames
+    # Test dict of sub-specs
     burt.misc = {"spare": inventory}
     burt.update()
     burt = ComplexDragonSpec.one(Q.name == "Burt", projection={"misc": {"$sub.": Inventory}})
@@ -677,8 +677,8 @@ def test_cascade(mongo_client, example_dataset_many):
 
     # Listen for delete events against dragons and delete any associated lair at
     # the same time.
-    def on_deleted(sender, frames):
-        ComplexDragonSpec.cascade(LairSpec, "lair", frames)
+    def on_deleted(sender, specs):
+        ComplexDragonSpec.cascade(LairSpec, "lair", specs)
 
     ComplexDragonSpec.listen("deleted", on_deleted)
 
@@ -696,8 +696,8 @@ def test_nullify(mongo_client, example_dataset_many):
 
     # Listen for delete events against lairs and nullify the lair field against
     # associated dragons
-    def on_deleted(sender, frames):
-        LairSpec.nullify(ComplexDragonSpec, "lair", frames)
+    def on_deleted(sender, specs):
+        LairSpec.nullify(ComplexDragonSpec, "lair", specs)
 
     LairSpec.listen("deleted", on_deleted)
 
@@ -718,8 +718,8 @@ def test_pull(mongo_client, example_dataset_many):
     # Listen for delete events against lairs and pull any deleted lair from the
     # associated dragons. For the sake of the tests here we're storing multiple
     # lairs against the lair attribute instead of the intended one.
-    def on_deleted(sender, frames):
-        LairSpec.pull(ComplexDragonSpec, "visited_lairs", frames)
+    def on_deleted(sender, specs):
+        LairSpec.pull(ComplexDragonSpec, "visited_lairs", specs)
 
     LairSpec.listen("deleted", on_deleted)
 
@@ -748,28 +748,28 @@ def test_listen(mongo_client):
     """Should add a callback for a signal against the class"""
 
     # Create a mocked functions for every event that can be triggered for a
-    # frame.
+    # spec.
     mock = Mock()
 
-    def on_insert(sender, frames):
-        mock.insert(sender, frames)
+    def on_insert(sender, specs):
+        mock.insert(sender, specs)
 
-    def on_inserted(sender, frames):
-        mock.inserted(sender, frames)
+    def on_inserted(sender, specs):
+        mock.inserted(sender, specs)
 
-    def on_update(sender, frames):
-        mock.update(sender, frames)
+    def on_update(sender, specs):
+        mock.update(sender, specs)
 
-    def on_updated(sender, frames):
-        mock.updated(sender, frames)
+    def on_updated(sender, specs):
+        mock.updated(sender, specs)
 
-    def on_delete(sender, frames):
-        mock.delete(sender, frames)
+    def on_delete(sender, specs):
+        mock.delete(sender, specs)
 
-    def on_deleted(sender, frames):
-        mock.deleted(sender, frames)
+    def on_deleted(sender, specs):
+        mock.deleted(sender, specs)
 
-    # Listen for all events triggered by frames
+    # Listen for all events triggered by specs
     DragonSpec.listen("insert", on_insert)
     DragonSpec.listen("inserted", on_inserted)
     DragonSpec.listen("update", on_update)
@@ -799,8 +799,8 @@ def test_stop_listening(mongo_client):
     # Add an listener for the insert event
     mock = Mock()
 
-    def on_insert(sender, frames):
-        mock.insert(sender, frames)
+    def on_insert(sender, specs):
+        mock.insert(sender, specs)
 
     DragonSpec.listen("on_insert", on_insert)
 
@@ -817,12 +817,12 @@ def test_stop_listening(mongo_client):
 
 def test_get_collection(mongo_client):
     """Return a reference to the database collection for the class"""
-    assert DragonSpec.get_collection() == mongo_client["mongoframes_test"]["dragon"]
+    assert DragonSpec.get_collection() == mongo_client["mongospecs_test"]["dragon"]
 
 
 def test_get_db(mongo_client):
     """Return the database for the collection"""
-    assert DragonSpec.get_db() == mongo_client["mongoframes_test"]
+    assert DragonSpec.get_db() == mongo_client["mongospecs_test"]
 
 
 def test_get_fields(mongo_client):

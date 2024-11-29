@@ -1,5 +1,5 @@
+import typing as t
 from datetime import date
-from typing import Any, Callable, Optional
 
 import bson
 import msgspec
@@ -9,7 +9,7 @@ from mongospecs.base import SpecBase
 from .empty import Empty, EmptyObject
 
 
-def bson_enc_hook(obj: Any) -> Any:
+def bson_enc_hook(obj: t.Any) -> t.Any:
     if obj is msgspec.UNSET or obj is Empty:
         return None
     if type(obj) == date:
@@ -20,20 +20,22 @@ def bson_enc_hook(obj: Any) -> Any:
     raise NotImplementedError(f"Objects of type {type(obj)} are not supported")
 
 
-def bson_dec_hook(typ, val) -> Any:
+def bson_dec_hook(typ: t.Any, val: t.Any) -> t.Any:
     if typ == bson.ObjectId:
         return bson.ObjectId(val)
     if typ == EmptyObject:
         return Empty
 
 
-def encode(obj: Any, enc_hook: Optional[Callable[[Any], Any]] = bson_enc_hook) -> bytes:
+def encode(obj: t.Any, enc_hook: t.Optional[t.Callable[[t.Any], t.Any]] = bson_enc_hook) -> bytes:
     return bson.encode(msgspec.to_builtins(obj, enc_hook=enc_hook, builtin_types=(bson.ObjectId,)))
 
 
-def encode_spec(obj: SpecBase) -> bytes:
+def encode_spec(obj: SpecBase[t.Any]) -> bytes:
     return bson.encode(obj.to_json_type())
 
 
-def decode(msg: bytes, typ=Any, dec_hook: Optional[Callable[[type, Any], Any]] = bson_dec_hook):
+def decode(
+    msg: bytes, typ: t.Any = t.Any, dec_hook: t.Optional[t.Callable[[type, t.Any], t.Any]] = bson_dec_hook
+) -> t.Any:
     return msgspec.convert(bson.decode(msg), type=typ, dec_hook=dec_hook)

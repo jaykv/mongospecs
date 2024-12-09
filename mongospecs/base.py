@@ -7,7 +7,7 @@ from copy import deepcopy
 
 from blinker import signal
 from bson import BSON, ObjectId
-from pymongo import MongoClient, UpdateOne
+from pymongo import ASCENDING, MongoClient, UpdateOne
 from pymongo.client_session import ClientSession
 from pymongo.collection import Collection
 from pymongo.database import Database
@@ -785,14 +785,14 @@ class SpecBase(t.Generic[SpecDocumentType]):
 
     # Index management
     @classmethod
-    def create_index(cls, keys: t.Union[str, list[str]], **kwargs: t.Any) -> str:
+    def create_index(cls, keys: t.Union[str, list[str]], direction: int | str = ASCENDING, **kwargs: t.Any) -> str:
         """
         Create an index on the specified keys (a single key or a list of keys).
         """
         if isinstance(keys, str):
-            index_keys = [(keys, 1)]  # 1 for ascending order
+            index_keys = [(keys, direction)]
         else:
-            index_keys = [(key, 1) for key in keys]  # 1 for ascending order
+            index_keys = [(key, direction) for key in keys]
 
         return cls.get_collection().create_index(index_keys, **kwargs)
 

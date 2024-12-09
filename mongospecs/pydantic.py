@@ -94,7 +94,7 @@ class Spec(BaseModel, SpecBase[t.Any]):
 
     @classmethod
     def get_fields(cls) -> set[str]:
-        return set(cls.model_fields.keys())  # type: ignore[attr-defined]
+        return set(cls.model_fields.keys())  # type: ignore[attr-defined,unused-ignore]
 
 
 class SubSpec(BaseModel, SubSpecBase):

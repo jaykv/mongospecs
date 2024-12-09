@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import typing as t
 from abc import abstractmethod
 from contextlib import contextmanager
@@ -5,17 +7,19 @@ from copy import deepcopy
 
 from blinker import signal
 from bson import BSON, ObjectId
-from pymongo import MongoClient, UpdateOne
+from pymongo import ASCENDING, MongoClient, UpdateOne
+from pymongo.client_session import ClientSession
 from pymongo.collection import Collection
 from pymongo.database import Database
+from pymongo.errors import ConnectionFailure, OperationFailure
 from typing_extensions import Self
 
 from mongospecs.empty import Empty, EmptyObject
 
 from .query import Condition, Group
 
-FilterType = t.Union[None, t.Mapping[str, t.Any], Condition, Group]
-SpecDocumentType = t.TypeVar("SpecDocumentType", bound=t.Mapping[str, t.Any])
+FilterType = t.Union[None, t.MutableMapping[str, t.Any], Condition, Group]
+SpecDocumentType = t.TypeVar("SpecDocumentType", bound=t.MutableMapping[str, t.Any], covariant=True)
 Specs = t.Sequence["SpecBase[SpecDocumentType]"]
 RawDocuments = t.Sequence[SpecDocumentType]
 SpecsOrRawDocuments = t.Sequence[t.Union["SpecBase[SpecDocumentType]", SpecDocumentType]]
@@ -69,7 +73,7 @@ class SpecBase(t.Generic[SpecDocumentType]):
         raise NotImplementedError
 
     # Operations
-    def insert(self) -> None:
+    def insert(self, **insert_one_kwargs: t.Any) -> None:
         """Insert this document"""
         # Send insert signal
         signal("insert").send(self.__class__, specs=[self])
@@ -81,12 +85,12 @@ class SpecBase(t.Generic[SpecDocumentType]):
         document = to_refs(document_dict)
 
         # Insert the document and update the Id
-        self._id = self.get_collection().insert_one(document).inserted_id
+        self._id = self.get_collection().insert_one(document, **insert_one_kwargs).inserted_id
 
         # Send inserted signal
         signal("inserted").send(self.__class__, specs=[self])
 
-    def unset(self, *fields: t.Any) -> None:
+    def unset(self, *fields: t.Any, **update_one_kwargs: t.Any) -> None:
         """Unset the given list of fields for this document."""
 
         # Send update signal
@@ -99,12 +103,12 @@ class SpecBase(t.Generic[SpecDocumentType]):
             unset[field] = True
 
         # Update the document
-        self.get_collection().update_one({"_id": self._id}, {"$unset": unset})
+        self.get_collection().update_one({"_id": self._id}, {"$unset": unset}, **update_one_kwargs)
 
         # Send updated signal
         signal("updated").send(self.__class__, specs=[self])
 
-    def update(self, *fields: t.Any) -> None:
+    def update(self, *fields: t.Any, **update_one_kwargs: t.Any) -> None:
         """
         Update this document. Optionally a specific list of fields to update can
         be specified.
@@ -126,12 +130,12 @@ class SpecBase(t.Generic[SpecDocumentType]):
         document.pop("_id", None)
 
         # Update the document
-        self.get_collection().update_one({"_id": self._id}, {"$set": document})
+        self.get_collection().update_one({"_id": self._id}, {"$set": document}, **update_one_kwargs)
 
         # Send updated signal
         signal("updated").send(self.__class__, specs=[self])
 
-    def upsert(self, *fields: t.Any) -> None:
+    def upsert(self, *fields: t.Any, **operation_kwargs: t.Any) -> None:
         """
         Update or Insert this document depending on whether it exists or not.
         The presense of an `_id` value in the document is used to determine if
@@ -153,11 +157,11 @@ class SpecBase(t.Generic[SpecDocumentType]):
         # performing the `upsert`.
         #
         if self.count({"_id": self._id}) == 0:
-            self.insert()
+            self.insert(**operation_kwargs)
         else:
-            self.update(*fields)
+            self.update(*fields, **operation_kwargs)
 
-    def delete(self) -> None:
+    def delete(self, **delete_one_kwargs: t.Any) -> None:
         """Delete this document"""
 
         assert "_id" in self.to_dict(), "Can't delete documents without `_id`"
@@ -166,10 +170,33 @@ class SpecBase(t.Generic[SpecDocumentType]):
         signal("delete").send(self.__class__, specs=[self])
 
         # Delete the document
-        self.get_collection().delete_one({"_id": self._id})
+        self.get_collection().delete_one({"_id": self._id}, **delete_one_kwargs)
 
         # Send deleted signal
         signal("deleted").send(self.__class__, specs=[self])
+
+    def soft_delete(self, **update_one_kwargs: t.Any) -> None:
+        """Soft delete this document by setting a deleted flag."""
+        assert "_id" in self.to_dict(), "Can't delete documents without `_id`"
+
+        # Send delete signal
+        signal("soft_delete").send(self.__class__, specs=[self])
+
+        # Update the document to set the deleted flag
+        self.get_collection().update_one({"_id": self._id}, {"$set": {"deleted": True}}, **update_one_kwargs)
+
+        # Send deleted signal
+        signal("soft_deleted").send(self.__class__, specs=[self])
+
+    @classmethod
+    def find_active(cls, filter: FilterType = None, **find_kwargs: t.Any) -> list[SpecDocumentType]:
+        """Return a list of active documents (not soft deleted)."""
+        if filter is None:
+            filter = {}
+        if isinstance(filter, (Condition, Group)):
+            filter = filter.to_dict()
+        filter["deleted"] = {"$ne": True}  # Exclude soft deleted documents
+        return cls.find(filter, **find_kwargs)
 
     @classmethod
     def find(cls, filter: FilterType = None, **kwargs: t.Any) -> list[SpecDocumentType]:
@@ -235,7 +262,7 @@ class SpecBase(t.Generic[SpecDocumentType]):
             setattr(self, field, spec[field])
 
     @classmethod
-    def insert_many(cls, documents: list[t.Union["SpecBase", SpecDocumentType]]) -> Specs:
+    def insert_many(cls, documents: SpecsOrRawDocuments[SpecDocumentType], **kwargs: t.Any) -> Specs[t.Any]:
         """Insert a list of documents"""
         # Ensure all documents have been converted to specs
         specs = cls._ensure_specs(documents)
@@ -251,7 +278,7 @@ class SpecBase(t.Generic[SpecDocumentType]):
                 _document.pop("_id")
 
         # Bulk insert
-        ids = cls.get_collection().insert_many(_documents).inserted_ids
+        ids = cls.get_collection().insert_many(_documents, **kwargs).inserted_ids
 
         # Apply the Ids to the specs
         for i, id in enumerate(ids):
@@ -263,7 +290,13 @@ class SpecBase(t.Generic[SpecDocumentType]):
         return specs
 
     @classmethod
-    def update_many(cls, documents: SpecsOrRawDocuments, *fields: t.Any) -> None:
+    def update_many(
+        cls,
+        documents: SpecsOrRawDocuments[SpecDocumentType],
+        *fields: t.Any,
+        update_one_kwargs: t.Any = None,
+        bulk_write_kwargs: t.Any = None,
+    ) -> None:
         """
         Update multiple documents. Optionally a specific list of fields to
         update can be specified.
@@ -290,19 +323,26 @@ class SpecBase(t.Generic[SpecDocumentType]):
         else:
             _documents = [to_refs(f.to_dict()) for f in specs]
 
+        if not update_one_kwargs:
+            update_one_kwargs = {}
+        if not bulk_write_kwargs:
+            bulk_write_kwargs = {}
+
         # Update the documents
         requests = []
         for _document in _documents:
             _id = _document.pop("_id")
-            requests.append(UpdateOne({"_id": _id}, {"$set": _document}))
+            requests.append(UpdateOne({"_id": _id}, {"$set": _document}, **update_one_kwargs))
 
-        cls.get_collection().bulk_write(requests)
+        cls.get_collection().bulk_write(requests, **bulk_write_kwargs)
 
         # Send updated signal
         signal("updated").send(cls, specs=specs)
 
     @classmethod
-    def unset_many(cls, documents: SpecsOrRawDocuments, *fields: t.Any) -> None:
+    def unset_many(
+        cls, documents: SpecsOrRawDocuments[SpecDocumentType], *fields: t.Any, **update_many_kwargs: t.Any
+    ) -> None:
         """Unset the given list of fields for given documents."""
 
         # Ensure all documents have been converted to specs
@@ -323,13 +363,13 @@ class SpecBase(t.Generic[SpecDocumentType]):
                 spec.to_dict().pop(field, None)
 
         # Update the document
-        cls.get_collection().update_many({"_id": {"$in": ids}}, {"$unset": unset})
+        cls.get_collection().update_many({"_id": {"$in": ids}}, {"$unset": unset}, **update_many_kwargs)
 
         # Send updated signal
         signal("updated").send(cls, specs=specs)
 
     @classmethod
-    def delete_many(cls, documents: SpecsOrRawDocuments) -> None:
+    def delete_many(cls, documents: SpecsOrRawDocuments[SpecDocumentType], **delete_many_kwargs: t.Any) -> None:
         """Delete multiple documents"""
 
         # Ensure all documents have been converted to specs
@@ -345,7 +385,7 @@ class SpecBase(t.Generic[SpecDocumentType]):
         ids = [f._id for f in specs]
 
         # Delete the documents
-        cls.get_collection().delete_many({"_id": {"$in": ids}})
+        cls.get_collection().delete_many({"_id": {"$in": ids}}, **delete_many_kwargs)
 
         # Send deleted signal
         signal("deleted").send(cls, specs=specs)
@@ -467,7 +507,7 @@ class SpecBase(t.Generic[SpecDocumentType]):
                 cls._collection_context = existing_context
 
     @classmethod
-    def _path_to_value(cls, path: str, parent_dict: dict[str, t.Any]) -> t.Any:
+    def _path_to_value(cls, path: str, parent_dict: t.MutableMapping[str, t.Any]) -> t.Any:
         """Return a value from a dictionary at the given path"""
         keys: list[str] = cls._path_to_keys(path)
 
@@ -488,7 +528,7 @@ class SpecBase(t.Generic[SpecDocumentType]):
         return path.split(".")
 
     @classmethod
-    def _ensure_specs(cls, documents: SpecsOrRawDocuments) -> Specs:
+    def _ensure_specs(cls, documents: SpecsOrRawDocuments[SpecDocumentType]) -> Specs[SpecDocumentType]:
         """
         Ensure all items in a list are specs by converting those that aren't.
         """
@@ -501,7 +541,7 @@ class SpecBase(t.Generic[SpecDocumentType]):
         return specs
 
     @classmethod
-    def _apply_sub_specs(cls, documents: RawDocuments, subs: dict[str, t.Any]) -> None:
+    def _apply_sub_specs(cls, documents: RawDocuments[SpecDocumentType], subs: dict[str, t.Any]) -> None:
         """Convert embedded documents to sub-specs for one or more documents"""
 
         # Dereference each reference
@@ -688,7 +728,7 @@ class SpecBase(t.Generic[SpecDocumentType]):
                 child_document[keys[-1]] = value
 
     @classmethod
-    def _remove_keys(cls, parent_dict: dict[str, t.Any], paths: list[str]):
+    def _remove_keys(cls, parent_dict: dict[str, t.Any], paths: list[str]) -> None:
         """
         Remove a list of keys from a dictionary.
 
@@ -726,22 +766,70 @@ class SpecBase(t.Generic[SpecDocumentType]):
     # Integrity helpers
 
     @classmethod
-    def cascade(cls, ref_cls: "SpecBase[SpecDocumentType]", field: str, specs: Specs) -> None:
+    def cascade(cls, ref_cls: "SpecBase[SpecDocumentType]", field: str, specs: Specs[SpecDocumentType]) -> None:
         """Apply a cascading delete (does not emit signals)"""
         ids = [to_refs(getattr(f, field)) for f in specs if hasattr(f, field)]
         ref_cls.get_collection().delete_many({"_id": {"$in": ids}})
 
     @classmethod
-    def nullify(cls, ref_cls: "SpecBase[SpecDocumentType]", field: str, specs: Specs) -> None:
+    def nullify(cls, ref_cls: "SpecBase[SpecDocumentType]", field: str, specs: Specs[SpecDocumentType]) -> None:
         """Nullify a reference field (does not emit signals)"""
         ids = [to_refs(f) for f in specs]
         ref_cls.get_collection().update_many({field: {"$in": ids}}, {"$set": {field: None}})
 
     @classmethod
-    def pull(cls, ref_cls: "SpecBase[SpecDocumentType]", field: str, specs: Specs) -> None:
+    def pull(cls, ref_cls: "SpecBase[SpecDocumentType]", field: str, specs: Specs[SpecDocumentType]) -> None:
         """Pull references from a list field (does not emit signals)"""
         ids = [to_refs(f) for f in specs]
         ref_cls.get_collection().update_many({field: {"$in": ids}}, {"$pull": {field: {"$in": ids}}})
+
+    # Index management
+    @classmethod
+    def create_index(cls, keys: t.Union[str, list[str]], direction: int | str = ASCENDING, **kwargs: t.Any) -> str:
+        """
+        Create an index on the specified keys (a single key or a list of keys).
+        """
+        if isinstance(keys, str):
+            index_keys = [(keys, direction)]
+        else:
+            index_keys = [(key, direction) for key in keys]
+
+        return cls.get_collection().create_index(index_keys, **kwargs)
+
+    # Transactions
+    @classmethod
+    @contextmanager
+    def transaction(cls, **start_transaction_kwargs: t.Any) -> t.Generator[ClientSession, t.Any, None]:
+        """Context manager for handling MongoDB transactions."""
+        if not cls._client:
+            raise RuntimeError("MongoDB client (_client) is not set. Cannot start a transaction.")
+        session = cls._client.start_session()
+        session.start_transaction(**start_transaction_kwargs)
+
+        try:
+            yield session  # Allow operations to be performed within this session
+            session.commit_transaction()  # Commit if no exceptions
+            signal("transaction_committed").send(cls)  # Emit signal after commit
+        except (ConnectionFailure, OperationFailure) as e:
+            session.abort_transaction()  # Abort on error
+            signal("transaction_aborted").send(cls)  # Emit signal after abort
+            raise e  # Re-raise the exception for handling
+        finally:
+            session.end_session()
+
+    @classmethod
+    def drop_index(cls, index_name: str) -> None:
+        """
+        Drop an index by its name.
+        """
+        cls.get_collection().drop_index(index_name)
+
+    @classmethod
+    def list_indexes(cls) -> list[t.MutableMapping[str, t.Any]]:
+        """
+        List all indexes on the collection.
+        """
+        return list(cls.get_collection().list_indexes())
 
     def __eq__(self, other: t.Any) -> bool:
         if not isinstance(other, self.__class__):

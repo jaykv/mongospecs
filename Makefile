@@ -26,7 +26,8 @@ format:
 lint:
 	ruff format --check --diff ${SOURCE_FILES}
 	ruff check ${SOURCE_FILES}
-	mypy ${SOURCE_FILES}
+	mypy mongospecs --strict
+	mypy tests
 
 shell:
 	source .venv/bin/activate

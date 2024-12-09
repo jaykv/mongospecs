@@ -702,17 +702,15 @@ class SpecBase(t.Generic[SpecDocumentType]):
             # Traverse to the tip of the path
             child_dict = parent_dict
             for key in keys[:-1]:
-                child_dict = child_dict.get(key)
+                child_dict = child_dict.get(key, {})
 
-                if child_dict is None:
-                    break
+                if not isinstance(child_dict, dict):
+                    continue
 
-            if child_dict is None:
+            if not isinstance(child_dict, dict):
                 continue
 
-            # Remove the key
-            if keys[-1] in child_dict:
-                child_dict.pop(keys[-1])
+            child_dict.pop(keys[-1], None)
 
     # Signals
     @classmethod

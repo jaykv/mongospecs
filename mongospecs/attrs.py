@@ -7,7 +7,7 @@ from attr import AttrsInstance
 from bson import ObjectId
 from pymongo import MongoClient
 
-from .base import SpecBase, SubSpecBase
+from .base import SpecBase, SpecDocumentType, SubSpecBase
 from .empty import Empty
 from .se import MongoEncoder, mongo_dec_hook
 
@@ -73,7 +73,7 @@ class SubSpec(SubSpecBase):
         return attrs.asdict(self)
 
 
-class AttrsAdapter(AttrsInstance, SpecBase): ...
+class AttrsAdapter(AttrsInstance, SpecBase[SpecDocumentType]): ...
 
 
 class AdapterBuilder:

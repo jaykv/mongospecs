@@ -17,7 +17,7 @@ from mongospecs.empty import Empty, EmptyObject
 from .query import Condition, Group
 
 FilterType = t.Union[None, t.MutableMapping[str, t.Any], Condition, Group]
-SpecDocumentType = t.TypeVar("SpecDocumentType", bound=t.Mapping[str, t.Any])
+SpecDocumentType = t.TypeVar("SpecDocumentType", bound=t.MutableMapping[str, t.Any], covariant=True)
 Specs = t.Sequence["SpecBase[SpecDocumentType]"]
 RawDocuments = t.Sequence[SpecDocumentType]
 SpecsOrRawDocuments = t.Sequence[t.Union["SpecBase[SpecDocumentType]", SpecDocumentType]]
@@ -260,9 +260,7 @@ class SpecBase(t.Generic[SpecDocumentType]):
             setattr(self, field, spec[field])
 
     @classmethod
-    def insert_many(
-        cls, documents: list[t.Union["SpecBase[t.Any]", SpecDocumentType]], **kwargs: t.Any
-    ) -> Specs[t.Any]:
+    def insert_many(cls, documents: SpecsOrRawDocuments[SpecDocumentType], **kwargs: t.Any) -> Specs[t.Any]:
         """Insert a list of documents"""
         # Ensure all documents have been converted to specs
         specs = cls._ensure_specs(documents)
@@ -291,7 +289,11 @@ class SpecBase(t.Generic[SpecDocumentType]):
 
     @classmethod
     def update_many(
-        cls, documents: SpecsOrRawDocuments, *fields: t.Any, update_one_kwargs: t.Any, bulk_write_kwargs: t.Any
+        cls,
+        documents: SpecsOrRawDocuments[SpecDocumentType],
+        *fields: t.Any,
+        update_one_kwargs: t.Any,
+        bulk_write_kwargs: t.Any,
     ) -> None:
         """
         Update multiple documents. Optionally a specific list of fields to
@@ -331,7 +333,9 @@ class SpecBase(t.Generic[SpecDocumentType]):
         signal("updated").send(cls, specs=specs)
 
     @classmethod
-    def unset_many(cls, documents: SpecsOrRawDocuments, *fields: t.Any, **update_many_kwargs: t.Any) -> None:
+    def unset_many(
+        cls, documents: SpecsOrRawDocuments[SpecDocumentType], *fields: t.Any, **update_many_kwargs: t.Any
+    ) -> None:
         """Unset the given list of fields for given documents."""
 
         # Ensure all documents have been converted to specs
@@ -358,7 +362,7 @@ class SpecBase(t.Generic[SpecDocumentType]):
         signal("updated").send(cls, specs=specs)
 
     @classmethod
-    def delete_many(cls, documents: SpecsOrRawDocuments, **delete_many_kwargs: t.Any) -> None:
+    def delete_many(cls, documents: SpecsOrRawDocuments[SpecDocumentType], **delete_many_kwargs: t.Any) -> None:
         """Delete multiple documents"""
 
         # Ensure all documents have been converted to specs
@@ -496,7 +500,7 @@ class SpecBase(t.Generic[SpecDocumentType]):
                 cls._collection_context = existing_context
 
     @classmethod
-    def _path_to_value(cls, path: str, parent_dict: dict[str, t.Any]) -> t.Any:
+    def _path_to_value(cls, path: str, parent_dict: t.MutableMapping[str, t.Any]) -> t.Any:
         """Return a value from a dictionary at the given path"""
         keys: list[str] = cls._path_to_keys(path)
 
@@ -517,7 +521,7 @@ class SpecBase(t.Generic[SpecDocumentType]):
         return path.split(".")
 
     @classmethod
-    def _ensure_specs(cls, documents: SpecsOrRawDocuments) -> Specs:
+    def _ensure_specs(cls, documents: SpecsOrRawDocuments[SpecDocumentType]) -> Specs[SpecDocumentType]:
         """
         Ensure all items in a list are specs by converting those that aren't.
         """
@@ -530,7 +534,7 @@ class SpecBase(t.Generic[SpecDocumentType]):
         return specs
 
     @classmethod
-    def _apply_sub_specs(cls, documents: RawDocuments, subs: dict[str, t.Any]) -> None:
+    def _apply_sub_specs(cls, documents: RawDocuments[SpecDocumentType], subs: dict[str, t.Any]) -> None:
         """Convert embedded documents to sub-specs for one or more documents"""
 
         # Dereference each reference
@@ -755,19 +759,19 @@ class SpecBase(t.Generic[SpecDocumentType]):
     # Integrity helpers
 
     @classmethod
-    def cascade(cls, ref_cls: "SpecBase[SpecDocumentType]", field: str, specs: Specs) -> None:
+    def cascade(cls, ref_cls: "SpecBase[SpecDocumentType]", field: str, specs: Specs[SpecDocumentType]) -> None:
         """Apply a cascading delete (does not emit signals)"""
         ids = [to_refs(getattr(f, field)) for f in specs if hasattr(f, field)]
         ref_cls.get_collection().delete_many({"_id": {"$in": ids}})
 
     @classmethod
-    def nullify(cls, ref_cls: "SpecBase[SpecDocumentType]", field: str, specs: Specs) -> None:
+    def nullify(cls, ref_cls: "SpecBase[SpecDocumentType]", field: str, specs: Specs[SpecDocumentType]) -> None:
         """Nullify a reference field (does not emit signals)"""
         ids = [to_refs(f) for f in specs]
         ref_cls.get_collection().update_many({field: {"$in": ids}}, {"$set": {field: None}})
 
     @classmethod
-    def pull(cls, ref_cls: "SpecBase[SpecDocumentType]", field: str, specs: Specs) -> None:
+    def pull(cls, ref_cls: "SpecBase[SpecDocumentType]", field: str, specs: Specs[SpecDocumentType]) -> None:
         """Pull references from a list field (does not emit signals)"""
         ids = [to_refs(f) for f in specs]
         ref_cls.get_collection().update_many({field: {"$in": ids}}, {"$pull": {field: {"$in": ids}}})

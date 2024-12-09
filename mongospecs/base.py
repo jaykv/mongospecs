@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import typing as t
 from abc import abstractmethod
 from contextlib import contextmanager
@@ -292,8 +294,8 @@ class SpecBase(t.Generic[SpecDocumentType]):
         cls,
         documents: SpecsOrRawDocuments[SpecDocumentType],
         *fields: t.Any,
-        update_one_kwargs: t.Any,
-        bulk_write_kwargs: t.Any,
+        update_one_kwargs: t.Any = None,
+        bulk_write_kwargs: t.Any = None,
     ) -> None:
         """
         Update multiple documents. Optionally a specific list of fields to
@@ -320,6 +322,11 @@ class SpecBase(t.Generic[SpecDocumentType]):
                 _documents.append(to_refs(document))
         else:
             _documents = [to_refs(f.to_dict()) for f in specs]
+
+        if not update_one_kwargs:
+            update_one_kwargs = {}
+        if not bulk_write_kwargs:
+            bulk_write_kwargs = {}
 
         # Update the documents
         requests = []

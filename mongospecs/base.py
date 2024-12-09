@@ -687,6 +687,33 @@ class SpecBase(t.Generic[SpecDocumentType]):
                     child_document = child_document[key]
                 child_document[keys[-1]] = value
 
+    @classmethod
+    def _remove_keys(cls, parent_dict: dict[str, t.Any], paths: list[str]):
+        """
+        Remove a list of keys from a dictionary.
+
+        Keys are specified as a series of `.` separated paths for keys in child
+        dictionaries, e.g 'parent_key.child_key.grandchild_key'.
+        """
+
+        for path in paths:
+            keys = cls._path_to_keys(path)
+
+            # Traverse to the tip of the path
+            child_dict = parent_dict
+            for key in keys[:-1]:
+                child_dict = child_dict.get(key)
+
+                if child_dict is None:
+                    break
+
+            if child_dict is None:
+                continue
+
+            # Remove the key
+            if keys[-1] in child_dict:
+                child_dict.pop(keys[-1])
+
     # Signals
     @classmethod
     def listen(cls, event: str, func: t.Callable[..., t.Any]) -> None:

@@ -7,9 +7,10 @@ from attr import AttrsInstance
 from bson import ObjectId
 from pymongo import MongoClient
 
-from .base import SpecBase, SpecDocumentType, SubSpecBase
-from .empty import Empty
-from .se import MongoEncoder, mongo_dec_hook
+from .base import SpecBase, SubSpecBase
+from .types import SpecDocumentType
+from .helpers.empty import Empty
+from .helpers.se import MongoEncoder, mongo_dec_hook
 
 __all__ = ["Spec", "SubSpec"]
 
@@ -27,7 +28,7 @@ def attrs_serializer(inst: type, field: attrs.Attribute, value: t.Any) -> t.Any:
 
 
 @attrs.define(kw_only=True)
-class Spec(SpecBase[t.Any]):
+class Spec(SpecBase):
     _id: t.Optional[ObjectId] = attrs.field(default=None, alias="_id", repr=True)  # type: ignore[assignment]
 
     @property
@@ -73,7 +74,7 @@ class SubSpec(SubSpecBase):
         return attrs.asdict(self)
 
 
-class AttrsAdapter(AttrsInstance, SpecBase[SpecDocumentType]): ...
+class AttrsAdapter(AttrsInstance, SpecBase): ...
 
 
 class AdapterBuilder:

@@ -7,7 +7,7 @@ from pydantic_core import core_schema
 from pymongo import MongoClient
 
 from .base import SpecBase, SubSpecBase
-from .empty import EmptyObject
+from .helpers.empty import EmptyObject
 
 __all__ = ["Spec", "SubSpec"]
 
@@ -37,7 +37,7 @@ class _ObjectIdPydanticAnnotation:
 PyObjectId = t.Annotated[ObjectId, _ObjectIdPydanticAnnotation]
 
 
-class Spec(BaseModel, SpecBase[t.Any]):
+class Spec(BaseModel, SpecBase):
     model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 
     id: t.Optional[PyObjectId] = Field(default=None, alias="_id")

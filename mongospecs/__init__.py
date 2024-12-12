@@ -3,11 +3,11 @@ from pymongo import DESCENDING as DESC
 from pymongo.collation import Collation
 from pymongo.operations import IndexModel
 
-from .empty import Empty
-from .ops import All, And, ElemMatch, Exists, In, Nor, Not, NotIn, Or, Size, SortBy, Type
-from .pagination import Page, Paginator
-from .query import Q
-from .se import MongoDecoder, MongoEncoder
+from .helpers.empty import Empty
+from .helpers.ops import All, And, ElemMatch, Exists, In, Nor, Not, NotIn, Or, Size, SortBy, Type
+from .helpers.pagination import Page, Paginator
+from .helpers.query import Q
+from .helpers.se import MongoDecoder, MongoEncoder
 
 __all__ = [
     # Queries

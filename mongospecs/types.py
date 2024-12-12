@@ -1,16 +1,15 @@
-
-from abc import abstractmethod
 import typing as t
-from .helpers.query import Condition, Group
-    
-FilterType = t.Union[None, t.MutableMapping[str, t.Any], Condition, Group]
-SpecDocumentType = t.TypeVar("SpecDocumentType", bound=t.MutableMapping[str, t.Any], covariant=True)
-Specs = t.Sequence["SpecBaseType[SpecDocumentType]"]
-RawDocuments = t.Sequence[SpecDocumentType]
-SpecsOrRawDocuments = t.Sequence[t.Union["SpecBaseType[SpecDocumentType]", SpecDocumentType]]
+from abc import abstractmethod
 
-class SpecBaseType(t.Generic[SpecDocumentType]):
-    
+from .helpers.query import Condition, Group
+
+FilterType = t.Union[None, t.MutableMapping[str, t.Any], Condition, Group]
+SpecDocumentType = t.MutableMapping[str, t.Any]
+RawDocuments = t.Sequence[SpecDocumentType]
+SpecsOrRawDocuments = t.Sequence[t.Union["SpecBaseType", SpecDocumentType]]
+
+
+class SpecBaseType:
     @abstractmethod
     def encode(self, **encode_kwargs: t.Any) -> bytes:
         raise NotImplementedError
@@ -27,15 +26,17 @@ class SpecBaseType(t.Generic[SpecDocumentType]):
     def to_dict(self) -> dict[str, t.Any]:
         raise NotImplementedError
 
+    @abstractmethod
     def to_tuple(self) -> tuple[t.Any, ...]:
         raise NotImplementedError
-    
+
     @classmethod
     @abstractmethod
     def get_fields(cls) -> set[str]:
         raise NotImplementedError
-    
-class SubSpecBaseType(t.Generic[SpecDocumentType]):
+
+
+class SubSpecBaseType:
     @abstractmethod
     def to_dict(self) -> t.Any:
         raise NotImplementedError()

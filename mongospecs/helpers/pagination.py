@@ -7,7 +7,9 @@ import typing as t
 from copy import deepcopy
 from dataclasses import dataclass
 
-from .base import SpecBase, to_refs
+from mongospecs.base import SpecBase
+from mongospecs.utils import to_refs
+
 from .query import Condition, Group
 
 __all__ = (
@@ -20,7 +22,7 @@ __all__ = (
 
 
 T = t.TypeVar("T")
-TSpec = t.TypeVar("TSpec", bound=SpecBase[t.Any])
+TSpec = t.TypeVar("TSpec", bound=SpecBase)
 
 
 class InvalidPage(Exception):

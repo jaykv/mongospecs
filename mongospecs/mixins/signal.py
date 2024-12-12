@@ -1,5 +1,7 @@
-from blinker import signal
 import typing as t
+
+from blinker import signal
+
 
 class SignalMixin:
     @classmethod

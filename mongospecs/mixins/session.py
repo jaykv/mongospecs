@@ -1,11 +1,12 @@
-
-from contextlib import contextmanager
 import typing as t
-from pymongo.client_session import ClientSession
+from contextlib import contextmanager
+
 from blinker import signal
+from pymongo.client_session import ClientSession
 from pymongo.errors import ConnectionFailure, OperationFailure
 
 from .base import MongoBaseMixin
+
 
 class SessionTransactionMixin(MongoBaseMixin):
     @classmethod

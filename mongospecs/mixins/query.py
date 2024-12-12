@@ -1,10 +1,16 @@
+import typing as t
 
+from bson import ObjectId
+
+from ..helpers.query import Condition, Group
+from ..types import FilterType
+from ..utils import to_refs
 from .base import MongoBaseMixin
 
 
 class QueryMixin(MongoBaseMixin):
     @classmethod
-    def by_id(cls, id: ObjectId, **kwargs: t.Any) -> t.Optional[Self]:
+    def by_id(cls, id: ObjectId, **kwargs: t.Any) -> t.Optional[t.Self]:
         """Get a document by ID"""
         return cls.one({"_id": id}, **kwargs)
 
@@ -33,7 +39,7 @@ class QueryMixin(MongoBaseMixin):
         return [d["_id"] for d in list(documents)]
 
     @classmethod
-    def one(cls, filter: FilterType = None, **kwargs: t.Any) -> t.Optional[Self]:
+    def one(cls, filter: FilterType = None, **kwargs: t.Any) -> t.Optional[t.Self]:
         """Return the first spec object matching the filter"""
         # Flatten the projection
         kwargs["projection"], references, subs = cls._flatten_projection(
@@ -61,7 +67,7 @@ class QueryMixin(MongoBaseMixin):
         return cls.from_document(document)
 
     @classmethod
-    def many(cls, filter: FilterType = None, **kwargs: t.Any) -> list[Self]:
+    def many(cls, filter: FilterType = None, **kwargs: t.Any) -> list[t.Self]:
         """Return a list of spec objects matching the filter"""
         # Flatten the projection
         kwargs["projection"], references, subs = cls._flatten_projection(

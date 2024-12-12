@@ -1,7 +1,14 @@
-from mongospecs.mixins.query import QueryMixin
 import typing as t
+
 from blinker import signal
-from ..types import SpecDocumentType, FilterType
+from pymongo import UpdateOne
+from pymongo.collection import Collection
+
+from mongospecs.helpers.query import Condition, Group
+from mongospecs.mixins.query import QueryMixin
+from mongospecs.types import FilterType, SpecDocumentType, SpecsOrRawDocuments
+from mongospecs.utils import to_refs
+
 
 class CrudMixin(QueryMixin):
     # Operations
@@ -171,7 +178,7 @@ class CrudMixin(QueryMixin):
             setattr(self, field, spec[field])
 
     @classmethod
-    def insert_many(cls, documents: SpecsOrRawDocuments[SpecDocumentType], **kwargs: t.Any) -> Specs[t.Any]:
+    def insert_many(cls, documents: t.Sequence[SpecDocumentType], **kwargs: t.Any) -> t.Sequence[t.Self]:
         """Insert a list of documents"""
         # Ensure all documents have been converted to specs
         specs = cls._ensure_specs(documents)
@@ -201,7 +208,7 @@ class CrudMixin(QueryMixin):
     @classmethod
     def update_many(
         cls,
-        documents: SpecsOrRawDocuments[SpecDocumentType],
+        documents: SpecsOrRawDocuments,
         *fields: t.Any,
         update_one_kwargs: t.Any = None,
         bulk_write_kwargs: t.Any = None,
@@ -249,9 +256,7 @@ class CrudMixin(QueryMixin):
         signal("updated").send(cls, specs=specs)
 
     @classmethod
-    def unset_many(
-        cls, documents: SpecsOrRawDocuments[SpecDocumentType], *fields: t.Any, **update_many_kwargs: t.Any
-    ) -> None:
+    def unset_many(cls, documents: SpecsOrRawDocuments, *fields: t.Any, **update_many_kwargs: t.Any) -> None:
         """Unset the given list of fields for given documents."""
 
         # Ensure all documents have been converted to specs
@@ -278,7 +283,7 @@ class CrudMixin(QueryMixin):
         signal("updated").send(cls, specs=specs)
 
     @classmethod
-    def delete_many(cls, documents: SpecsOrRawDocuments[SpecDocumentType], **delete_many_kwargs: t.Any) -> None:
+    def delete_many(cls, documents: SpecsOrRawDocuments, **delete_many_kwargs: t.Any) -> None:
         """Delete multiple documents"""
 
         # Ensure all documents have been converted to specs
@@ -298,7 +303,7 @@ class CrudMixin(QueryMixin):
 
         # Send deleted signal
         signal("deleted").send(cls, specs=specs)
-        
+
     def soft_delete(self, **update_one_kwargs: t.Any) -> None:
         """Soft delete this document by setting a deleted flag."""
         assert "_id" in self.to_dict(), "Can't delete documents without `_id`"

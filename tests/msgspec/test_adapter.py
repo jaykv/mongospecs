@@ -8,7 +8,7 @@ from msgspec import UNSET, Struct
 from pymongo import ReadPreference
 
 from mongospecs import ASC, DESC, In, Q
-from mongospecs.empty import Empty
+from mongospecs.helpers.empty import Empty
 from mongospecs.msgspec import SpecAdapter
 
 from .adapter_models import ComplexDragon, Dragon, Inventory, Lair, MonitoredDragon

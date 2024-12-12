@@ -5,14 +5,14 @@ from contextlib import contextmanager
 from copy import deepcopy
 
 from bson import BSON, ObjectId
-from pymongo import ASCENDING, MongoClient
+from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
 from typing_extensions import Self
 
 from ..helpers.empty import Empty, EmptyObject
-from ..types import SpecDocumentType, Specs, RawDocuments, SpecsOrRawDocuments, SubSpecBaseType, SpecBaseType
-import typing as t
+from ..types import RawDocuments, SpecBaseType, SpecDocumentType, SpecsOrRawDocuments
+
 
 class MongoBaseMixin(SpecBaseType):
     _client: t.ClassVar[t.Optional[MongoClient[t.Any]]] = None
@@ -38,9 +38,8 @@ class MongoBaseMixin(SpecBaseType):
 
         return self._id == other._id
 
-    def __lt__(self, other: t.Any) -> t.Any:
-        return self._id < other._id
-    
+    def __lt__(self, other: t.Any) -> bool:
+        return self._id < other._id  # type: ignore[no-any-return]
 
     @classmethod
     def get_collection(cls) -> Collection[t.Any]:
@@ -76,7 +75,7 @@ class MongoBaseMixin(SpecBaseType):
                 cls._collection_context = existing_context
 
     @classmethod
-    def _path_to_value(cls, path: str, parent_dict: t.MutableMapping[str, t.Any]) -> t.Any:
+    def _path_to_value(cls, path: str, parent_dict: SpecDocumentType) -> t.Any:
         """Return a value from a dictionary at the given path"""
         keys: list[str] = cls._path_to_keys(path)
 
@@ -97,7 +96,7 @@ class MongoBaseMixin(SpecBaseType):
         return path.split(".")
 
     @classmethod
-    def _ensure_specs(cls, documents: SpecsOrRawDocuments[SpecDocumentType]) -> Specs[SpecDocumentType]:
+    def _ensure_specs(cls, documents: SpecsOrRawDocuments) -> t.Sequence[t.Self]:
         """
         Ensure all items in a list are specs by converting those that aren't.
         """
@@ -110,7 +109,7 @@ class MongoBaseMixin(SpecBaseType):
         return specs
 
     @classmethod
-    def _apply_sub_specs(cls, documents: RawDocuments[SpecDocumentType], subs: dict[str, t.Any]) -> None:
+    def _apply_sub_specs(cls, documents: RawDocuments, subs: dict[str, t.Any]) -> None:
         """Convert embedded documents to sub-specs for one or more documents"""
 
         # Dereference each reference
@@ -242,7 +241,7 @@ class MongoBaseMixin(SpecBaseType):
         return flat_projection, references, subs
 
     @classmethod
-    def _dereference(cls, documents: RawDocuments[t.Any], references: dict[str, t.Any]) -> None:
+    def _dereference(cls, documents: RawDocuments, references: dict[str, t.Any]) -> None:
         """Dereference one or more documents"""
 
         # Dereference each reference
@@ -320,24 +319,3 @@ class MongoBaseMixin(SpecBaseType):
                 continue
 
             child_dict.pop(keys[-1], None)
-
-
-def to_refs(value: t.Any) -> t.Any:
-    """Convert all Spec instances within the given value to Ids"""
-    # Spec
-    if isinstance(value, SpecBaseType):
-        return getattr(value, "_id")
-
-    # SubSpec
-    elif isinstance(value, SubSpecBaseType):
-        return to_refs(value.to_dict())
-
-    # Lists
-    elif isinstance(value, (list, tuple)):
-        return [to_refs(v) for v in value]
-
-    # Dictionaries
-    elif isinstance(value, dict):
-        return {k: to_refs(v) for k, v in value.items()}
-
-    return value

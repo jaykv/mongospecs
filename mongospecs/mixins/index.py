@@ -1,22 +1,18 @@
-
-
 import typing as t
+
 from pymongo import ASCENDING
 
+from ..types import SpecDocumentType
 from .base import MongoBaseMixin
 
-class IndexManagementMixin(MongoBaseMixin):
 
+class IndexManagementMixin(MongoBaseMixin):
     @classmethod
-    def create_index(cls, keys: t.Union[str, list[str]], direction: t.Union[int, str] = ASCENDING, **kwargs: t.Any) -> str:
+    def create_index(cls, keys: t.Union[str, list[tuple[str, int]]], **kwargs: t.Any) -> str:
         """
         Create an index on the specified keys (a single key or a list of keys).
         """
-        if isinstance(keys, str):
-            index_keys = [(keys, direction)]
-        else:
-            index_keys = [(key, direction) for key in keys]
-
+        index_keys = [(keys, ASCENDING)] if isinstance(keys, str) else keys
         return cls.get_collection().create_index(index_keys, **kwargs)
 
     @classmethod
@@ -27,7 +23,7 @@ class IndexManagementMixin(MongoBaseMixin):
         cls.get_collection().drop_index(index_name)
 
     @classmethod
-    def list_indexes(cls) -> list[t.MutableMapping[str, t.Any]]:
+    def list_indexes(cls) -> list[SpecDocumentType]:
         """
         List all indexes on the collection.
         """

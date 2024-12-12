@@ -8,7 +8,6 @@ from bson import ObjectId
 from pymongo import MongoClient
 
 from .base import SpecBase, SubSpecBase
-from .types import SpecDocumentType
 from .helpers.empty import Empty
 from .helpers.se import MongoEncoder, mongo_dec_hook
 

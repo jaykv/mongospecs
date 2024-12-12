@@ -3,20 +3,19 @@ from __future__ import annotations
 import typing as t
 from copy import deepcopy
 
-from mongospecs.types import SpecBaseType, SubSpecBaseType
+from mongospecs.types import SubSpecBaseType
 
 from .mixins.crud import CrudMixin
 from .mixins.index import IndexManagementMixin
 from .mixins.integrity import IntegrityMixin
-from .mixins.query import QueryMixin
 from .mixins.session import SessionTransactionMixin
 from .mixins.signal import SignalMixin
 
 T = t.TypeVar("T")
 
 
-class SpecBase(CrudMixin, IndexManagementMixin, IntegrityMixin, SessionTransactionMixin, SignalMixin):
-    ...
+class SpecBase(CrudMixin, IndexManagementMixin, IntegrityMixin, SessionTransactionMixin, SignalMixin): ...
+
 
 class SubSpecBase(SubSpecBaseType):
     _parent: t.ClassVar[t.Any] = SpecBase
@@ -85,4 +84,3 @@ class SubSpecBase(SubSpecBaseType):
             return True
 
         return sub_projection
-

@@ -90,7 +90,8 @@ class Spec(BaseModel, SpecBase):
         copy_dict["_id"] = copy_dict.pop("id")
         return copy_dict
 
-    # note: pydantic BaseModel already has to_tuple
+    def to_tuple(self) -> tuple[str, ...]:
+        return tuple(self.to_dict())
 
     @classmethod
     def get_fields(cls) -> set[str]:

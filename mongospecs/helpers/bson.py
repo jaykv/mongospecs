@@ -31,7 +31,7 @@ def encode(obj: t.Any, enc_hook: t.Optional[t.Callable[[t.Any], t.Any]] = bson_e
     return bson.encode(msgspec.to_builtins(obj, enc_hook=enc_hook, builtin_types=(bson.ObjectId,)))
 
 
-def encode_spec(obj: SpecBase[t.Any]) -> bytes:
+def encode_spec(obj: SpecBase) -> bytes:
     return bson.encode(obj.to_json_type())
 
 

@@ -1,8 +1,8 @@
 from bson import ObjectId
 
 from mongospecs import All, And, ElemMatch, Exists, In, Nor, Not, NotIn, Or, Q, Size, SortBy, Type
-from mongospecs.base import to_refs
 from mongospecs.pydantic import Spec
+from mongospecs.utils import to_refs
 
 
 def test_q():

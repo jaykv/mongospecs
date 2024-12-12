@@ -6,7 +6,7 @@ from attr import define
 from bson import ObjectId
 
 from mongospecs.attrs import Spec as AttrsSpec
-from mongospecs.bson import decode, encode, encode_spec
+from mongospecs.helpers.bson import decode, encode, encode_spec
 from mongospecs.msgspec import Spec as MsgspecSpec
 
 

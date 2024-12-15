@@ -5,8 +5,7 @@ import bson
 import msgspec
 
 from mongospecs.base import SpecBase
-
-from .empty import Empty, EmptyObject
+from mongospecs.helpers.empty import Empty, EmptyObject
 
 
 def bson_enc_hook(obj: t.Any) -> t.Any:

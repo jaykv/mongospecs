@@ -10,8 +10,8 @@ from pymongo.collection import Collection
 from pymongo.database import Database
 from typing_extensions import Self
 
-from ..helpers.empty import Empty, EmptyObject
-from ..types import RawDocuments, SpecBaseType, SpecDocumentType, SpecsOrRawDocuments
+from mongospecs.helpers.empty import Empty, EmptyObject
+from mongospecs.types import RawDocuments, SpecBaseType, SpecDocumentType, SpecsOrRawDocuments
 
 
 class MongoBaseMixin(SpecBaseType):
@@ -67,12 +67,8 @@ class MongoBaseMixin(SpecBaseType):
             collection = cls.get_collection()
             cls._collection_context = collection.with_options(**options)
             yield cls._collection_context
-
         finally:
-            if cls._collection_context is None:
-                del cls._collection_context
-            else:
-                cls._collection_context = existing_context
+            cls._collection_context = existing_context
 
     @classmethod
     def _path_to_value(cls, path: str, parent_dict: SpecDocumentType) -> t.Any:

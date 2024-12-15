@@ -5,7 +5,7 @@ from blinker import signal
 from pymongo.client_session import ClientSession
 from pymongo.errors import ConnectionFailure, OperationFailure
 
-from .base import MongoBaseMixin
+from mongospecs.mixins.base import MongoBaseMixin
 
 
 class SessionTransactionMixin(MongoBaseMixin):

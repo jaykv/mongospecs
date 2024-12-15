@@ -8,9 +8,8 @@ from copy import deepcopy
 from dataclasses import dataclass
 
 from mongospecs.base import SpecBase
+from mongospecs.helpers.query import Condition, Group
 from mongospecs.utils import to_refs
-
-from .query import Condition, Group
 
 __all__ = (
     # Exceptions

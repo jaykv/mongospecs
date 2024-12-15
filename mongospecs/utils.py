@@ -1,6 +1,6 @@
 import typing as t
 
-from .types import SpecBaseType, SubSpecBaseType
+from mongospecs.types import SpecBaseType, SubSpecBaseType
 
 __all__ = ["deep_merge"]
 

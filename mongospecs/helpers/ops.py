@@ -2,9 +2,8 @@ import typing as t
 
 from pymongo import ASCENDING, DESCENDING
 
+from mongospecs.helpers.query import Condition, Group, Q
 from mongospecs.utils import deep_merge, to_refs
-
-from .query import Condition, Group, Q
 
 __all__ = [
     # Operators

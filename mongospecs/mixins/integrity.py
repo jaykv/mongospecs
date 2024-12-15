@@ -1,7 +1,7 @@
 import typing as t
 
-from ..utils import to_refs
-from .base import MongoBaseMixin
+from mongospecs.mixins.base import MongoBaseMixin
+from mongospecs.utils import to_refs
 
 
 class IntegrityMixin(MongoBaseMixin):

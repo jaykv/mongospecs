@@ -2,8 +2,8 @@ import typing as t
 
 from pymongo import ASCENDING
 
-from ..types import SpecDocumentType
-from .base import MongoBaseMixin
+from mongospecs.mixins.base import MongoBaseMixin
+from mongospecs.types import SpecDocumentType
 
 
 class IndexManagementMixin(MongoBaseMixin):

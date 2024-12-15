@@ -4,9 +4,9 @@ import msgspec
 from bson import ObjectId
 from pymongo import MongoClient
 
-from .base import SpecBase, SubSpecBase
-from .helpers.empty import Empty, EmptyObject
-from .helpers.se import MongoEncoder, mongo_dec_hook, mongo_enc_hook
+from mongospecs.base import SpecBase, SubSpecBase
+from mongospecs.helpers.empty import Empty, EmptyObject
+from mongospecs.helpers.se import MongoEncoder, mongo_dec_hook, mongo_enc_hook
 
 __all__ = ["Spec", "SubSpec"]
 

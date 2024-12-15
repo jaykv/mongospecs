@@ -1,7 +1,7 @@
 import typing as t
 from abc import abstractmethod
 
-from .helpers.query import Condition, Group
+from mongospecs.helpers.query import Condition, Group
 
 FilterType = t.Union[None, t.MutableMapping[str, t.Any], Condition, Group]
 SpecDocumentType = t.MutableMapping[str, t.Any]
@@ -39,4 +39,4 @@ class SpecBaseType:
 class SubSpecBaseType:
     @abstractmethod
     def to_dict(self) -> t.Any:
-        raise NotImplementedError()
+        raise NotImplementedError

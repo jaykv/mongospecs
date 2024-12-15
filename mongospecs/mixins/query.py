@@ -2,10 +2,10 @@ import typing as t
 
 from bson import ObjectId
 
-from ..helpers.query import Condition, Group
-from ..types import FilterType
-from ..utils import to_refs
-from .base import MongoBaseMixin
+from mongospecs.helpers.query import Condition, Group
+from mongospecs.mixins.base import MongoBaseMixin
+from mongospecs.types import FilterType
+from mongospecs.utils import to_refs
 
 
 class QueryMixin(MongoBaseMixin):

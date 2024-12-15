@@ -6,8 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic_core import core_schema
 from pymongo import MongoClient
 
-from .base import SpecBase, SubSpecBase
-from .helpers.empty import EmptyObject
+from mongospecs.base import SpecBase, SubSpecBase
+from mongospecs.helpers.empty import EmptyObject
 
 __all__ = ["Spec", "SubSpec"]
 
@@ -90,7 +90,7 @@ class Spec(BaseModel, SpecBase):
         copy_dict["_id"] = copy_dict.pop("id")
         return copy_dict
 
-    def to_tuple(self) -> tuple[str, ...]:
+    def to_tuple(self) -> tuple[t.Any, ...]:
         return tuple(self.to_dict())
 
     @classmethod

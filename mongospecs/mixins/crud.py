@@ -3,6 +3,7 @@ import typing as t
 from blinker import signal
 from pymongo import UpdateOne
 from pymongo.collection import Collection
+from typing_extensions import Self
 
 from mongospecs.helpers.query import Condition, Group
 from mongospecs.mixins.query import QueryMixin
@@ -180,7 +181,7 @@ class CrudMixin(QueryMixin):
             setattr(self, field, spec[field])
 
     @classmethod
-    def insert_many(cls, documents: SpecsOrRawDocuments, **kwargs: t.Any) -> t.Sequence[t.Self]:
+    def insert_many(cls, documents: SpecsOrRawDocuments, **kwargs: t.Any) -> t.Sequence[Self]:
         """Insert a list of documents"""
         # Ensure all documents have been converted to specs
         specs = cls._ensure_specs(documents)

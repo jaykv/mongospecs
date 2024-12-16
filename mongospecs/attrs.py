@@ -1,5 +1,5 @@
 import typing as t
-from datetime import date, datetime
+from datetime import datetime
 
 import attrs
 import msgspec
@@ -17,9 +17,7 @@ T = t.TypeVar("T")
 
 
 def attrs_serializer(inst: type, field: attrs.Attribute, value: t.Any) -> t.Any:  # type: ignore[type-arg]
-    if type(value) == date:
-        return str(value)
-    elif isinstance(value, ObjectId):
+    if isinstance(value, ObjectId):
         return str(value)
     elif isinstance(value, datetime):
         return datetime.isoformat(value)

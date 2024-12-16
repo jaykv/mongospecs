@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import typing as t
+from abc import abstractmethod
 from contextlib import contextmanager
 from copy import deepcopy
 
@@ -92,7 +93,7 @@ class MongoBaseMixin(SpecBaseType):
         return path.split(".")
 
     @classmethod
-    def _ensure_specs(cls, documents: SpecsOrRawDocuments) -> t.Sequence[t.Self]:
+    def _ensure_specs(cls, documents: SpecsOrRawDocuments) -> t.Sequence[Self]:
         """
         Ensure all items in a list are specs by converting those that aren't.
         """
@@ -315,3 +316,8 @@ class MongoBaseMixin(SpecBaseType):
                 continue
 
             child_dict.pop(keys[-1], None)
+
+    @classmethod
+    @abstractmethod
+    def get_fields(cls) -> set[str]:
+        raise NotImplementedError

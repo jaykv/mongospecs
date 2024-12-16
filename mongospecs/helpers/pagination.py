@@ -57,8 +57,7 @@ class Page(t.Generic[T]):
         return self.items[i]
 
     def __iter__(self) -> t.Iterator[T]:
-        for item in self.items:
-            yield item
+        yield from self.items
 
     def __len__(self) -> int:
         return len(self.items)

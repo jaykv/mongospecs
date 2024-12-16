@@ -30,11 +30,6 @@ class SpecBaseType:
     def to_tuple(self) -> tuple[t.Any, ...]:
         raise NotImplementedError
 
-    @classmethod
-    @abstractmethod
-    def get_fields(cls) -> set[str]:
-        raise NotImplementedError
-
 
 class SubSpecBaseType:
     @abstractmethod

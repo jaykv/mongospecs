@@ -53,7 +53,8 @@ class CrudMixin(QueryMixin):
         be specified.
         """
         self_document = self.to_dict()
-        assert "_id" in self_document, "Can't update documents without `_id`"
+        if "_id" not in self_document:
+            raise ValueError("Can't update documents without `_id`")
 
         # Send update signal
         signal("update").send(self.__class__, specs=[self])
@@ -103,7 +104,8 @@ class CrudMixin(QueryMixin):
     def delete(self, **delete_one_kwargs: t.Any) -> None:
         """Delete this document"""
 
-        assert "_id" in self.to_dict(), "Can't delete documents without `_id`"
+        if "_id" not in self.to_dict():
+            raise ValueError("Can't delete documents without `_id`")
 
         # Send delete signal
         signal("delete").send(self.__class__, specs=[self])
@@ -178,7 +180,7 @@ class CrudMixin(QueryMixin):
             setattr(self, field, spec[field])
 
     @classmethod
-    def insert_many(cls, documents: t.Sequence[SpecDocumentType], **kwargs: t.Any) -> t.Sequence[t.Self]:
+    def insert_many(cls, documents: SpecsOrRawDocuments, **kwargs: t.Any) -> t.Sequence[t.Self]:
         """Insert a list of documents"""
         # Ensure all documents have been converted to specs
         specs = cls._ensure_specs(documents)
@@ -220,8 +222,8 @@ class CrudMixin(QueryMixin):
         # Ensure all documents have been converted to specs
         specs = cls._ensure_specs(documents)
 
-        all_count = len(documents)
-        assert len([f for f in specs if "_id" in f.to_dict()]) == all_count, "Can't update documents without `_id`s"
+        if not all(f._id for f in specs):
+            raise ValueError("Can't update documents without `_id`s")
 
         # Send update signal
         signal("update").send(cls, specs=specs)
@@ -262,8 +264,8 @@ class CrudMixin(QueryMixin):
         # Ensure all documents have been converted to specs
         specs = cls._ensure_specs(documents)
 
-        all_count = len(documents)
-        assert len([f for f in specs if "_id" in f.to_dict()]) == all_count, "Can't update documents without `_id`s"
+        if not all(f._id for f in specs):
+            raise ValueError("Can't update documents without `_id`s")
 
         # Send update signal
         signal("update").send(cls, specs=specs)
@@ -289,8 +291,8 @@ class CrudMixin(QueryMixin):
         # Ensure all documents have been converted to specs
         specs = cls._ensure_specs(documents)
 
-        all_count = len(documents)
-        assert len([f for f in specs if "_id" in f.to_dict()]) == all_count, "Can't delete documents without `_id`s"
+        if not all(f._id for f in specs):
+            raise ValueError("Can't delete documents without `_id`s")
 
         # Send delete signal
         signal("delete").send(cls, specs=specs)
@@ -306,7 +308,8 @@ class CrudMixin(QueryMixin):
 
     def soft_delete(self, **update_one_kwargs: t.Any) -> None:
         """Soft delete this document by setting a deleted flag."""
-        assert "_id" in self.to_dict(), "Can't delete documents without `_id`"
+        if "_id" not in self.to_dict():
+            raise ValueError("Can't delete documents without `_id`")
 
         # Send delete signal
         signal("soft_delete").send(self.__class__, specs=[self])

@@ -222,6 +222,7 @@ def test_delete(mongo_client, example_dataset_one):
     """Should delete a document from the database"""
     burt = ComplexDragon.one(Q.name == "Burt")
     assert burt
+    assert burt._id
 
     burt.delete()
     burt = burt.by_id(burt._id)
@@ -380,6 +381,7 @@ def test_by_id(mongo_client, example_dataset_many):
     # Get an Id for a dragon
     fred = ComplexDragon.one(Q.name == "Fred")
     assert fred
+    assert fred._id
 
     # Load a dragon using the Id and make sure it's the same
     fred_by_id = ComplexDragon.by_id(fred._id)
@@ -615,6 +617,7 @@ def test_cascade(mongo_client, example_dataset_many):
     assert burt
 
     burt.delete()
+    assert burt.lair._id
     lair = Lair.by_id(burt.lair._id)
     assert lair is None
 

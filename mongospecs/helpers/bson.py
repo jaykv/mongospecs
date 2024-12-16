@@ -5,8 +5,7 @@ import bson
 import msgspec
 
 from mongospecs.base import SpecBase
-
-from .empty import Empty, EmptyObject
+from mongospecs.helpers.empty import Empty, EmptyObject
 
 
 def bson_enc_hook(obj: t.Any) -> t.Any:
@@ -31,7 +30,7 @@ def encode(obj: t.Any, enc_hook: t.Optional[t.Callable[[t.Any], t.Any]] = bson_e
     return bson.encode(msgspec.to_builtins(obj, enc_hook=enc_hook, builtin_types=(bson.ObjectId,)))
 
 
-def encode_spec(obj: SpecBase[t.Any]) -> bytes:
+def encode_spec(obj: SpecBase) -> bytes:
     return bson.encode(obj.to_json_type())
 
 

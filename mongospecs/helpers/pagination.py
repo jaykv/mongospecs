@@ -7,8 +7,9 @@ import typing as t
 from copy import deepcopy
 from dataclasses import dataclass
 
-from .base import SpecBase, to_refs
-from .query import Condition, Group
+from mongospecs.base import SpecBase
+from mongospecs.helpers.query import Condition, Group
+from mongospecs.utils import to_refs
 
 __all__ = (
     # Exceptions
@@ -20,7 +21,7 @@ __all__ = (
 
 
 T = t.TypeVar("T")
-TSpec = t.TypeVar("TSpec", bound=SpecBase[t.Any])
+TSpec = t.TypeVar("TSpec", bound=SpecBase)
 
 
 class InvalidPage(Exception):
@@ -56,8 +57,7 @@ class Page(t.Generic[T]):
         return self.items[i]
 
     def __iter__(self) -> t.Iterator[T]:
-        for item in self.items:
-            yield item
+        yield from self.items
 
     def __len__(self) -> int:
         return len(self.items)

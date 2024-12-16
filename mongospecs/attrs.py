@@ -1,5 +1,5 @@
 import typing as t
-from datetime import date, datetime
+from datetime import datetime
 
 import attrs
 import msgspec
@@ -7,9 +7,9 @@ from attr import AttrsInstance
 from bson import ObjectId
 from pymongo import MongoClient
 
-from .base import SpecBase, SpecDocumentType, SubSpecBase
-from .empty import Empty
-from .se import MongoEncoder, mongo_dec_hook
+from mongospecs.base import SpecBase, SubSpecBase
+from mongospecs.helpers.empty import Empty
+from mongospecs.helpers.se import MongoEncoder, mongo_dec_hook
 
 __all__ = ["Spec", "SubSpec"]
 
@@ -17,9 +17,7 @@ T = t.TypeVar("T")
 
 
 def attrs_serializer(inst: type, field: attrs.Attribute, value: t.Any) -> t.Any:  # type: ignore[type-arg]
-    if type(value) == date:
-        return str(value)
-    elif isinstance(value, ObjectId):
+    if isinstance(value, ObjectId):
         return str(value)
     elif isinstance(value, datetime):
         return datetime.isoformat(value)
@@ -27,7 +25,7 @@ def attrs_serializer(inst: type, field: attrs.Attribute, value: t.Any) -> t.Any:
 
 
 @attrs.define(kw_only=True)
-class Spec(SpecBase[t.Any]):
+class Spec(SpecBase):
     _id: t.Optional[ObjectId] = attrs.field(default=None, alias="_id", repr=True)  # type: ignore[assignment]
 
     @property
@@ -71,9 +69,6 @@ class SubSpec(SubSpecBase):
 
     def to_dict(self) -> dict[str, t.Any]:
         return attrs.asdict(self)
-
-
-class AttrsAdapter(AttrsInstance, SpecBase[SpecDocumentType]): ...
 
 
 class AdapterBuilder:

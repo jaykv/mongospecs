@@ -4,14 +4,14 @@ import msgspec
 from bson import ObjectId
 from pymongo import MongoClient
 
-from .base import SpecBase, SpecDocumentType, SubSpecBase
-from .empty import Empty, EmptyObject
-from .se import MongoEncoder, mongo_dec_hook, mongo_enc_hook
+from mongospecs.base import SpecBase, SubSpecBase
+from mongospecs.helpers.empty import Empty, EmptyObject
+from mongospecs.helpers.se import MongoEncoder, mongo_dec_hook, mongo_enc_hook
 
 __all__ = ["Spec", "SubSpec"]
 
 
-class Spec(msgspec.Struct, SpecBase[t.Any], kw_only=True):
+class Spec(msgspec.Struct, SpecBase, kw_only=True):
     _id: t.Union[ObjectId, msgspec.UnsetType] = msgspec.field(name="_id", default=msgspec.UNSET)  # type: ignore[assignment]
     _empty_type: t.ClassVar[t.Any] = msgspec.UNSET
 
@@ -55,7 +55,7 @@ class SubSpec(msgspec.Struct, SubSpecBase, kw_only=True, dict=True):
         return msgspec.structs.asdict(self)
 
 
-class MsgspecAdapter(SpecBase[SpecDocumentType]):
+class MsgspecAdapter(SpecBase):
     _id: t.Union[EmptyObject, ObjectId] = msgspec.field(default=Empty)
     _empty_type: t.ClassVar[t.Any] = msgspec.UNSET
 

@@ -6,8 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic_core import core_schema
 from pymongo import MongoClient
 
-from .base import SpecBase, SubSpecBase
-from .empty import EmptyObject
+from mongospecs.base import SpecBase, SubSpecBase
+from mongospecs.helpers.empty import EmptyObject
 
 __all__ = ["Spec", "SubSpec"]
 
@@ -37,7 +37,7 @@ class _ObjectIdPydanticAnnotation:
 PyObjectId = t.Annotated[ObjectId, _ObjectIdPydanticAnnotation]
 
 
-class Spec(BaseModel, SpecBase[t.Any]):
+class Spec(BaseModel, SpecBase):
     model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 
     id: t.Optional[PyObjectId] = Field(default=None, alias="_id")
@@ -90,7 +90,8 @@ class Spec(BaseModel, SpecBase[t.Any]):
         copy_dict["_id"] = copy_dict.pop("id")
         return copy_dict
 
-    # note: pydantic BaseModel already has to_tuple
+    def to_tuple(self) -> tuple[t.Any, ...]:
+        return tuple(self.to_dict())
 
     @classmethod
     def get_fields(cls) -> set[str]:

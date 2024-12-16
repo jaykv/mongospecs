@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mongospecs"
-version = "0.1.3"
+version = "0.1.4"
 description = "simple mongo ODM with support for msgspec, pydantic, and attrs"
 authors = ["Jay <jay.github0@gmail.com>"]
 repository = "https://github.com/jaykv/mongospecs"

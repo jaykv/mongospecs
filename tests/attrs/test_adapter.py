@@ -9,7 +9,7 @@ from pymongo import ReadPreference
 
 from mongospecs import ASC, DESC, In, Q
 from mongospecs.attrs import SpecAdapter
-from mongospecs.empty import Empty
+from mongospecs.helpers.empty import Empty
 
 from .adapter_models import ComplexDragon, Dragon, Inventory, Lair, MonitoredDragon
 from .fixtures import mongo_client  # noqa

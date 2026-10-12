@@ -97,7 +97,7 @@ class Paginator(t.Generic[TSpec]):
     """Any additional filter arguments applied when selecting results such as sort and projection"""
 
     def __post_init__(self) -> None:
-        # flattern the filter at this point which effectively deep copies.
+        # Flatten the filter at this point which effectively deep copies.
         if isinstance(self.filter, (Condition, Group)):
             self.filter = self.filter.to_dict()
         else:
@@ -106,11 +106,11 @@ class Paginator(t.Generic[TSpec]):
         # Count the total results being paginated
         self._items_count = self.spec_cls.count(self.filter)
 
-        # Calculated the number of pages
+        # Calculate the number of pages
         total = self._items_count - self.orphans
         self._page_count = max(1, int(math.ceil(total / float(self.per_page))))
 
-        # Create a list of page number that can be used to navigate the results
+        # Create a list of page numbers that can be used to navigate the results
         self._page_numbers = range(1, self._page_count + 1)
 
     def __getitem__(self, page_number: int) -> Page[TSpec]:

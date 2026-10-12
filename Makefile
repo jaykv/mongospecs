@@ -8,8 +8,13 @@ install:
 test:
 	pytest -vv --capture=tee-sys
 
+coverage:
+	coverage run -m pytest
+	coverage report
+	coverage html
+
 clean:
-	rm -rf build/ dist/ *.egg-info .*_cache
+	rm -rf build/ dist/ *.egg-info .*_cache htmlcov/
 	find . -name '*.pyc' -type f -exec rm -rf {} +
 	find . -name '__pycache__' -exec rm -rf {} +
 

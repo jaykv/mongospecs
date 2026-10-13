@@ -31,7 +31,7 @@ dev = [
     "openapi-spec-validator>=0.7",
 ]
 docs = [
-    "mkdocs-material>=9.5",
+    "zensical>=0.0.70",
 ]
 
 [tool.pytest.ini_options]

@@ -34,7 +34,7 @@ build:
 	uv build --all-packages
 
 docs:
-	uv run --group docs mkdocs build --strict
+	uv run --group docs zensical build --clean
 
 clean:
 	rm -rf dist build site .*_cache .venv-*

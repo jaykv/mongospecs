@@ -161,7 +161,7 @@ class MongoBackend(t.Generic[T]):
     async def create(self, data: dict[str, t.Any]) -> T:
         stored = {self.meta.fields[k].stored: v for k, v in data.items()}
         doc = self.meta.decode(stored, stored=False)
-        return t.cast(T, await self.manager.insert(doc))
+        return t.cast(T, await self.manager.insert(doc))  # checked again there: hooks may change it
 
     supports_merge = True
     """``patch`` accepts ``merge=``: a :class:`~mongospecs_web.merge.PatchPlan` of writes inside

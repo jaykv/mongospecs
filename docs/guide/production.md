@@ -103,6 +103,12 @@ api = Api(*resources, max_concurrency=200, max_body=1_048_576)
   costs 1.08 times the driver's own `insert_many` (`bench/results/6dc837f/B4.json`). *Measured.*
 - `save()` sends only the changed fields; `Model.update(id, Inc(...))` is one atomic round trip and
   needs no read. *Tested.*
+- Documents are validated before `insert`, `save`, `insert_many` and `bulk_save` write them. The
+  check took about 3 microseconds per document on msgspec and 5 on pydantic for a seven-field
+  document with two embedded objects, against about 6 and 4 for encoding it. For bulk loads of
+  data that is already known to be sound, `validate=False` on the call or
+  `SpecConfig(validate_writes=False)` on the model skips it. *Measured once, on one machine; not
+  part of the recorded benchmark runs, which predate the check.*
 - A web `DELETE` is one conditional write. It needs a read first only when the model has delete
   hooks, or cascades on a hard delete. *Tested* (`test_delete_is_one_write_unless_the_document_is_needed`).
 

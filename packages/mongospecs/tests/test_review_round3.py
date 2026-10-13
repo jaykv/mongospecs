@@ -135,3 +135,124 @@ async def test_8_a_bad_cursor_leaves_no_coroutine_behind(make_registry):
             await Note.find().page(5, number=0, total=True)
         gc.collect()
     assert not [w for w in caught if "never awaited" in str(w.message)]
+
+
+# -- writes are validated ---------------------------------------------------------------------
+
+
+def counter(backend, **config):
+    spec = SpecConfig(collection="r3_counters", **config)
+    if backend == "msgspec":
+        import msgspec
+
+        from mongospecs.msgspec import Spec
+
+        class Part(msgspec.Struct, kw_only=True):
+            size: int = 0
+
+        class Counter(Spec, kw_only=True):
+            __spec__ = spec
+            name: str = ""
+            n: int = 0
+            part: Part | None = None
+            parts: list[Part] = []
+
+    elif backend == "pydantic":
+        import pydantic
+
+        from mongospecs.pydantic import Spec
+
+        class Part(pydantic.BaseModel):
+            size: int = 0
+
+        class Counter(Spec):
+            __spec__ = spec
+            name: str = ""
+            n: int = 0
+            part: Part | None = None
+            parts: list[Part] = []
+
+    else:
+        import attrs
+
+        from mongospecs.attrs import Spec
+
+        @attrs.define(kw_only=True)
+        class Part:
+            size: int = 0
+
+        @attrs.define(kw_only=True)
+        class Counter(Spec):
+            __spec__ = spec
+            name: str = ""
+            n: int = 0
+            part: Part | None = None
+            parts: list[Part] = attrs.field(factory=list)
+
+    return Counter, Part
+
+
+def wrong(Counter, Part, **fields):
+    """A document holding a wrongly typed value, however the backend lets one come about."""
+    doc = Counter(name="c")
+    for name, value in fields.items():
+        setattr(doc, name, value)
+    return doc
+
+
+async def test_10_a_wrongly_typed_value_is_refused_before_it_is_written(backend, make_registry):
+    Counter, Part = counter(backend)
+    await make_registry(Counter)
+    bad_part = Part()
+    bad_part.size = "big"
+    for fields in ({"n": "many"}, {"part": bad_part}, {"parts": [bad_part]}, {"name": None}):
+        with pytest.raises(ValidationError):
+            await wrong(Counter, Part, **fields).insert()
+        with pytest.raises(ValidationError):
+            await wrong(Counter, Part, **fields).save()
+        with pytest.raises(ValidationError):
+            await Counter.insert_many([wrong(Counter, Part, **fields)])
+        with pytest.raises(ValidationError):
+            await Counter.bulk_save([wrong(Counter, Part, **fields)])
+    assert await Counter.count() == 0
+
+    doc = await Counter(name="ok", n=1, part=Part(size=2), parts=[Part(size=3)]).insert()
+    doc.n = "many"
+    with pytest.raises(ValidationError) as caught:
+        await doc.save()
+    assert caught.value.errors[0]["field"] == "n"
+    with pytest.raises(ValidationError):
+        await Counter.bulk_save([doc])
+    assert (await Counter.get(doc.id)).n == 1  # nothing was sent
+    doc.n = 2
+    assert (await doc.save()).n == 2  # and the document is still usable once it is put right
+
+    # a document loaded with a projection is judged by what was changed, not as a whole
+    partial = await Counter.find().select("n").one()
+    partial.n = "many"
+    with pytest.raises(ValidationError):
+        await partial.save()
+    partial.n = 5
+    await partial.save()
+    assert [(c.name, c.n) for c in await Counter.find()] == [("ok", 5)]
+
+
+async def test_10_validation_of_writes_can_be_turned_off(backend, make_registry):
+    Counter, Part = counter(backend)
+    await make_registry(Counter)
+    doc = await wrong(Counter, Part, n="many").insert(validate=False)
+    assert (await Counter.collection().find_one({"_id": doc.id}))["n"] == "many"
+    doc.name = 7
+    await doc.save(validate=False)
+    await Counter.insert_many([wrong(Counter, Part, n="x")], validate=False)
+    await Counter.bulk_save([wrong(Counter, Part, n="y")], validate=False)
+    assert await Counter.find().raw().count() == 3
+
+
+async def test_10_or_for_a_whole_model(backend, make_registry, db_name):
+    Counter, Part = counter(backend, validate_writes=False)
+    await make_registry(Counter)
+    doc = await wrong(Counter, Part, n="many").insert()
+    assert (await Counter.collection().find_one({"_id": doc.id}))["n"] == "many"
+    with pytest.raises(ValidationError):
+        await wrong(Counter, Part, n="many").insert(validate=True)  # a call can still ask for it

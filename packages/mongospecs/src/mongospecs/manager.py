@@ -284,14 +284,39 @@ class Manager(t.Generic[T]):
                 return True
         return any(self.meta.hooks(when, event) for when in ("before", "after") for event in events)
 
+    def _validated(self, doc: t.Any, validate: bool | None) -> bool:
+        return meta_of(type(doc)).config.validate_writes if validate is None else validate
+
+    def _check(
+        self, doc: t.Any, encoded: t.Mapping[str, t.Any], changed: t.Iterable[str] | None = None
+    ) -> None:
+        """Raise :class:`ValidationError` unless ``encoded``, the document as it is about to be
+        stored, fits the model. The model libraries do not check a value assigned to an
+        attribute (msgspec and attrs do not check the constructor either), so this is where a
+        wrongly typed value is caught: before it is written, not when it is next read.
+
+        ``changed`` limits the check to those stored keys, for a document that was loaded with
+        a projection and so cannot be judged as a whole.
+        """
+        meta = meta_of(type(doc))
+        if changed is None:
+            meta.codec.decode(type(doc), encoded)
+            return
+        for stored in changed:
+            info = meta.by_stored.get(stored)
+            if info is not None and not info.transient:
+                meta.codec.validate_field(type(doc), info.name, encoded.get(stored))
+
     # -- document-level writes -----------------------------------------------------
 
-    async def insert(self, doc: T, *, session: t.Any = None) -> T:
+    async def insert(self, doc: T, *, session: t.Any = None, validate: bool | None = None) -> T:
         ctx = self.ctx("insert", session, doc=doc)
         await self._hooks("before", ("insert", "save"), ctx, doc)
+        encoded = self.meta.encode(doc)
+        if self._validated(doc, validate):
+            self._check(doc, encoded)
         if isinstance(session, Tx):
             session.record(doc, self.managed_attrs)
-        encoded = self.meta.encode(doc)
         if encoded.get("_id") is None:
             encoded.pop("_id", None)
         for plugin in self.plugins:
@@ -321,12 +346,12 @@ class Manager(t.Generic[T]):
             update["$unset"] = {key: "" for key in to_unset}
         return current, update
 
-    async def save(self, doc: T, *, session: t.Any = None) -> T:
+    async def save(self, doc: T, *, session: t.Any = None, validate: bool | None = None) -> T:
         """Insert a new document, or send only what changed on a tracked one."""
         state = tracking.state_of(doc)
         if state is None:
             try:
-                return await self.insert(doc, session=session)
+                return await self.insert(doc, session=session, validate=validate)
             except DuplicateKeyError as exc:
                 if "_id" not in exc.fields:
                     raise
@@ -346,6 +371,8 @@ class Manager(t.Generic[T]):
         if update:
             flt: dict[str, t.Any] = {"_id": state.snapshot["_id"], **self._shard_filter(state.snapshot)}
             user_keys = _touched(update)
+            if self._validated(doc, validate):
+                self._check(doc, current, _heads(user_keys) if state.partial is not None else None)
             for plugin in self.plugins:
                 plugin.on_update(ctx, flt, update)
             with self._op("save"):
@@ -680,6 +707,7 @@ class Manager(t.Generic[T]):
         *,
         ordered: bool = True,
         session: t.Any = None,
+        validate: bool | None = None,
     ) -> BulkResult[T]:
         """Insert documents in one round trip.
 
@@ -688,11 +716,14 @@ class Manager(t.Generic[T]):
         ``insert`` and ``save`` run for every document, as they do for ``insert()``:
         the ``before`` hooks ahead of the write, the ``after`` hooks for what was written.
         """
+        given = list(docs)
         items: list[t.Any] = [
-            self.meta.decode(dict(d), stored=False) if isinstance(d, t.Mapping) else d for d in docs
+            self.meta.decode(dict(d), stored=False) if isinstance(d, t.Mapping) else d for d in given
         ]
         if not items:
             return BulkResult([], [])
+        # a mapping has just been validated by being decoded; an instance has not been
+        unchecked = [not isinstance(d, t.Mapping) for d in given]
         ctx = self.ctx("insert", session, many=True)
         hooks = self._has_hooks("insert", "save")
         if hooks:
@@ -701,10 +732,12 @@ class Manager(t.Generic[T]):
         for plugin in self.plugins:
             await plugin.before_bulk(ctx, items)
         encoded: list[dict[str, t.Any]] = []
-        for doc in items:
+        for doc, instance in zip(items, unchecked, strict=True):
+            enc = self.meta.encode(doc)
+            if (instance or hooks) and self._validated(doc, validate):
+                self._check(doc, enc)
             if isinstance(session, Tx):
                 session.record(doc, self.managed_attrs)
-            enc = self.meta.encode(doc)
             if enc.get("_id") is None:
                 enc.pop("_id", None)
             for plugin in self.plugins:
@@ -774,7 +807,9 @@ class Manager(t.Generic[T]):
             await plugin.after_bulk(ctx, ops)
         return result
 
-    async def bulk_save(self, docs: t.Iterable[T], *, session: t.Any = None) -> int:
+    async def bulk_save(
+        self, docs: t.Iterable[T], *, session: t.Any = None, validate: bool | None = None
+    ) -> int:
         """Save many documents in one round trip: inserts for new ones, deltas for tracked ones.
 
         Returns the number of documents written. Writes are independent: if some
@@ -801,6 +836,8 @@ class Manager(t.Generic[T]):
                 if hooks:
                     await self._hooks("before", ("insert", "save"), ctx, doc)
                 enc = self.meta.encode(doc)
+                if self._validated(doc, validate):
+                    self._check(doc, enc)
                 if enc.get("_id") is None:
                     enc.pop("_id", None)
                 for plugin in self.plugins:
@@ -816,6 +853,8 @@ class Manager(t.Generic[T]):
                 continue
             flt: dict[str, t.Any] = {"_id": state.snapshot["_id"], **self._shard_filter(state.snapshot)}
             user_keys = _touched(update)
+            if self._validated(doc, validate):
+                self._check(doc, current, _heads(user_keys) if state.partial is not None else None)
             for plugin in self.plugins:
                 plugin.on_update(ctx, flt, update)
             requests.append(DriverUpdateOne(flt, update))
@@ -1004,6 +1043,11 @@ class Aggregate(t.Generic[T]):
 
 def _touched(update: t.Mapping[str, t.Any]) -> frozenset[str]:
     return frozenset(k for body in update.values() for k in body)
+
+
+def _heads(paths: t.Iterable[str]) -> set[str]:
+    """The top-level stored keys that dotted update paths write under."""
+    return {path.partition(".")[0] for path in paths}
 
 
 def _patch(doc: dict[str, t.Any], update: t.Mapping[str, t.Any], *, skip: frozenset[str]) -> None:

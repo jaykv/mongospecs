@@ -25,6 +25,9 @@ A rewrite. See [Migrating from 0.1.x](docs/migration.md) for the API map.
 - Index planning with gated destructive actions; change streams; per-command observability events
   with logging, OpenTelemetry and Sentry listeners.
 - Document hooks run for `insert_many` and `bulk_save`.
+- `insert`, `save`, `insert_many` and `bulk_save` validate the document before writing it, on
+  every backend. `validate=False` on a call or `SpecConfig(validate_writes=False)` on a model
+  turns the check off.
 - A single-field update on a pydantic model runs the field's validators and not the model-level
   ones, which could only see the other fields' defaults.
 

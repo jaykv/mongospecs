@@ -19,7 +19,7 @@ listed becomes a 500 with no detail, and the cause is logged.
 
 | Error | Raised when | What to do | HTTP |
 |---|---|---|---|
-| `ValidationError` | a value does not fit the model: on read, in `update()`, in a request body. `.errors` lists `{"field", "message"}` | fix the input; for stored documents see `SpecConfig(upcast=...)` and `find().on_invalid(...)` | 422 |
+| `ValidationError` | a value does not fit the model: on read, on any write, in a request body. `.errors` lists `{"field", "message"}` | fix the input; for stored documents see `SpecConfig(upcast=...)` and `find().on_invalid(...)` | 422 |
 | `QueryError` | a filter, sort or update names an unknown field, has a value that cannot be cast, or a raw dict contains an operator | fix the query; wrap filters you wrote yourself in `trusted()` | 400 |
 | `DocumentNotFound` | `one()`, `or_fail()`, `update()`, `save()` or `delete()` matched nothing | treat as "gone" | 404 |
 | `StaleDocumentError` | a `Revision` check failed: the document changed since you loaded it | reload and retry, or tell the user | 412 |

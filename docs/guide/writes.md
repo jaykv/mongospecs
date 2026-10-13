@@ -164,11 +164,27 @@ assert landing.rev == 1 and landing.changes() == {"$set": {"tags": ["page", "pro
 Sessions are always explicit: pass `session=tx` to every operation inside the function. For manual
 control use `async with registry.session() as s, s.start_transaction(): ...` (no automatic retry).
 
+## Validation
+
+Every write is validated. `Model.update(...)` checks the values it is given; `insert()`, `save()`,
+`insert_many()` and `bulk_save()` check the document as it is about to be stored, so a wrongly
+typed attribute is an error at the write and not when the document is next read. `validate=False`
+on a call, or `SpecConfig(validate_writes=False)` on a model, skips that check where its few
+microseconds matter (see [Choosing a backend](backends.md)).
+
 ```python
 try:
     await Article.update(landing.id, title=123)
 except Exception as exc:
     assert type(exc).__name__ == "ValidationError"
+
+draft = Article(title="Draft")
+draft.views = "many"  # msgspec does not check this
+try:
+    await draft.insert()
+except Exception as exc:
+    assert type(exc).__name__ == "ValidationError" and exc.errors[0]["field"] == "views"
+assert draft.is_new and await Article.count(Q.title == "Draft") == 0
 
 try:
     await Article.update("0" * 24, title="nobody")

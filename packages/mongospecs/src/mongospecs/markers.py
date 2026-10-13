@@ -257,6 +257,14 @@ class SpecConfig:
     collection_options: t.Mapping[str, t.Any] = field(default_factory=dict)
     """Options for ``create_collection`` (``timeseries``, ``capped``, ``size``, ...)."""
 
+    validate_writes: bool = True
+    """Check a document against its model before ``insert``, ``save``, ``insert_many`` and
+    ``bulk_save`` write it, so that nothing is stored that could not be read back. msgspec and
+    attrs do not check types when a model is constructed or assigned to, and pydantic does not
+    check assignments, so without this a wrongly typed value is stored as it is. Turn it off for
+    a model whose values are known to be sound and whose writes must be as cheap as possible;
+    ``validate=False`` on a single call does the same for that call."""
+
     json_schema_validation: t.Literal["off", "moderate", "strict"] = "off"
     none: t.Literal["omit", "store"] = "omit"
     """What to write for a field whose default is ``None`` while its value is ``None``:

@@ -1,0 +1,3 @@
+# mongospecs.registry
+
+::: mongospecs.registry

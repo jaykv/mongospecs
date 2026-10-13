@@ -43,6 +43,7 @@ asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 markers = [
     "sharded: needs the sharded cluster from docker/compose.sharded.yaml",
+    "chaos: steps the replica set primary down while the system is under load",
 ]
 
 [tool.ruff]

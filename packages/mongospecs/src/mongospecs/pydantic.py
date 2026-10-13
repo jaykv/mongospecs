@@ -18,7 +18,6 @@ from mongospecs.refs import OID, Ref
 __all__ = ["CODEC", "PydanticCodec", "Spec", "SpecAdapter"]
 
 _HAS_EXCLUDE_COMPUTED = "exclude_computed_fields" in inspect.signature(BaseModel.model_dump).parameters
-_SCALARS: tuple[type, ...] = (str, int, float, bool, bytes)
 
 
 def _error(cls: type, exc: pydantic.ValidationError, name: str | None = None) -> ValidationError:
@@ -44,7 +43,6 @@ class PydanticCodec(Codec):
 
     def __init__(self) -> None:
         super().__init__()
-        self._flat: dict[type, bool] = {}
         self._adapters: dict[tuple[type, str], TypeAdapter[t.Any]] = {}
 
     def raw_fields(self, cls: type) -> list[RawField]:
@@ -54,25 +52,9 @@ class PydanticCodec(Codec):
             for name, info in model.model_fields.items()
         ]
 
-    def _is_flat(self, cls: type) -> bool:
-        """True when every field is a plain scalar, so unvalidated construction is safe."""
-        flat = self._flat.get(cls)
-        if flat is None:
-            from bson import ObjectId
-
-            from mongospecs.codec import strip_optional
-
-            flat = all(strip_optional(f.type) in (*_SCALARS, ObjectId) for f in self.fields(cls).values())
-            self._flat[cls] = flat
-        return flat
-
-    def _decode(self, cls: type, doc: dict[str, t.Any], trusted: bool) -> t.Any:
-        model = t.cast("type[BaseModel]", cls)
-        if trusted and self._is_flat(cls):
-            by_alias = {f.stored: f.name for f in self.fields(cls).values()}
-            return model.model_construct(**{by_alias.get(k, k): v for k, v in doc.items() if k in by_alias})
+    def _decode(self, cls: type, doc: dict[str, t.Any], lax: bool) -> t.Any:
         try:
-            return model.model_validate(doc)
+            return t.cast("type[BaseModel]", cls).model_validate(doc)
         except pydantic.ValidationError as exc:
             raise _error(cls, exc) from exc
 
@@ -109,7 +91,6 @@ class PydanticCodec(Codec):
 
     def clear_cache(self) -> None:
         super().clear_cache()
-        self._flat.clear()
         self._adapters.clear()
 
 

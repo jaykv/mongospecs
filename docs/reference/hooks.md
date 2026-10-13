@@ -1,0 +1,3 @@
+# mongospecs.hooks
+
+::: mongospecs.hooks

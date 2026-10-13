@@ -1,19 +1,27 @@
 """Change tracking by snapshot.
 
-When a document is loaded (or written), its encoded form is kept in a side table
-keyed by object identity. ``save()`` diffs the current encoding against that
-snapshot and sends only the difference. No attribute interception is involved,
-so the mechanism is the same for msgspec, pydantic and attrs.
+A tracked document remembers how it looked when it was loaded. ``save()``
+compares the current encoding with that snapshot and sends only the difference.
+No attribute interception is involved, so the mechanism is the same for
+msgspec, pydantic and attrs.
 
-The table entry is removed by a weakref finaliser when the document is
-collected, which is why document classes must be weak-referenceable.
+For documents read by a query, what is kept is the raw BSON the driver received,
+as bytes: nothing is re-encoded at load time and the bytes are smaller than the
+equivalent Python objects. The snapshot proper (the document decoded into the
+model and encoded again, so that defaults and type coercions are already
+applied) is only built if the document is actually saved.
+
+State lives in a side table keyed by object identity and is removed by a weakref
+finaliser when the document is collected, which is why document classes must be
+weak-referenceable.
 """
 
 from __future__ import annotations
 
-import copy
 import typing as t
 import weakref
+
+import bson
 
 __all__ = ["DocState", "diff", "forget", "state_of", "track"]
 
@@ -21,16 +29,38 @@ __all__ = ["DocState", "diff", "forget", "state_of", "track"]
 class DocState:
     """What mongospecs remembers about a tracked document."""
 
-    __slots__ = ("manager", "partial", "snapshot")
+    __slots__ = ("_doc", "_raw", "manager", "partial")
 
-    def __init__(self, snapshot: dict[str, t.Any], manager: t.Any, partial: frozenset[str] | None) -> None:
-        self.snapshot = snapshot
+    def __init__(
+        self,
+        snapshot: dict[str, t.Any] | bytes,
+        manager: t.Any,
+        partial: frozenset[str] | None,
+    ) -> None:
+        self._raw: bytes | None = snapshot if isinstance(snapshot, bytes) else None
+        self._doc: dict[str, t.Any] | None = None if isinstance(snapshot, bytes) else snapshot
         self.manager = manager
         self.partial = partial
         """Stored keys that were loaded, when the document was read with a projection."""
 
-    def copy(self) -> DocState:
-        return DocState(copy.deepcopy(self.snapshot), self.manager, self.partial)
+    @property
+    def snapshot(self) -> dict[str, t.Any]:
+        """The document as the model encoded it when it was loaded.
+
+        Built on first use from the raw bytes by decoding into the model and
+        encoding again. Going through the model means a field the stored
+        document lacks already has its default here, so loading a document never
+        looks like editing it.
+        """
+        if self._doc is None:
+            assert self._raw is not None
+            from mongospecs.meta import meta_of
+
+            meta = self.manager.meta
+            loaded = meta.decode(bson.decode(self._raw, self.manager.registry._codec_options))
+            self._doc = meta_of(type(loaded)).encode(loaded)
+            self._raw = None
+        return self._doc
 
 
 _states: dict[int, DocState] = {}
@@ -42,7 +72,7 @@ def state_of(obj: t.Any) -> DocState | None:
 
 def track(
     obj: t.Any,
-    snapshot: dict[str, t.Any],
+    snapshot: dict[str, t.Any] | bytes,
     manager: t.Any,
     partial: frozenset[str] | None = None,
 ) -> DocState:

@@ -36,9 +36,9 @@ class AttrsCodec(Codec):
             for a in attrs.fields(cls)
         ]
 
-    def _decode(self, cls: type, doc: dict[str, t.Any], trusted: bool) -> t.Any:
+    def _decode(self, cls: type, doc: dict[str, t.Any], lax: bool) -> t.Any:
         try:
-            return msgspec.convert(doc, cls, dec_hook=dec_hook)
+            return msgspec.convert(doc, cls, dec_hook=dec_hook, strict=not lax)
         except (msgspec.ValidationError, ValueError) as exc:
             raise _error(cls, exc) from exc
 

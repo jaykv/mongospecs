@@ -8,7 +8,7 @@ version = "0.0.0"
 description = "Benchmarks and stress scenarios for mongospecs against real MongoDB. Not published."
 requires-python = ">=3.11"
 classifiers = ["Private :: Do Not Upload"]
-dependencies = ["mongospecs[all,sentry]", "mongospecs-web[all]", "httpx>=0.27"]
+dependencies = ["mongospecs[all,sentry]", "mongospecs-web[all]", "httpx>=0.27", "uvicorn>=0.30"]
 
 [project.scripts]
 mongospecs-bench = "mongospecs_bench.cli:main"

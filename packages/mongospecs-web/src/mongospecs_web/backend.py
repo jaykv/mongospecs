@@ -116,7 +116,7 @@ class MongoBackend(t.Generic[T]):
 
     async def create(self, data: dict[str, t.Any]) -> T:
         stored = {self.meta.fields[k].stored: v for k, v in data.items()}
-        doc = self.meta.decode(stored, trusted=False)
+        doc = self.meta.decode(stored, stored=False)
         return t.cast(T, await self.manager.insert(doc))
 
     async def patch(self, id: t.Any, data: dict[str, t.Any], *, scope: t.Any, if_rev: int | None = None) -> T:

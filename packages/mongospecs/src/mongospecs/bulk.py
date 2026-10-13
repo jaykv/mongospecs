@@ -63,7 +63,7 @@ def compile_bulk(manager: Manager[t.Any], ctx: OpCtx, operations: t.Iterable[t.A
     requests: list[t.Any] = []
     for op in operations:
         if isinstance(op, InsertOne):
-            doc = manager.meta.decode(dict(op.doc)) if isinstance(op.doc, t.Mapping) else op.doc
+            doc = manager.meta.decode(dict(op.doc), stored=False) if isinstance(op.doc, t.Mapping) else op.doc
             encoded = manager.meta.encode(doc)
             if encoded.get("_id") is None:
                 encoded.pop("_id", None)

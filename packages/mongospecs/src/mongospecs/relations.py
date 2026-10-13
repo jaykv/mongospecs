@@ -507,7 +507,7 @@ class GraphQuery:
         mode = query._mode
         results: list[GraphResult[t.Any]] = []
         with manager._op("graph"):
-            cursor = await manager.collection.aggregate(self.compile(), **manager._kw(query._session))
+            cursor = await manager.collection.aggregate(self.compile(), **manager._agg_kw(query._session))
             raws = [raw async for raw in cursor]
         for raw in raws:
             nodes_raw = sorted(raw.pop("__graph", []), key=lambda n: n.get("__depth", 0))
@@ -602,7 +602,7 @@ class UnionQuery:
         first = self._queries[0]
         manager = first._manager
         with manager._op("union"):
-            cursor = await manager.collection.aggregate(self.compile(), **manager._kw(first._session))
+            cursor = await manager.collection.aggregate(self.compile(), **manager._agg_kw(first._session))
         async with cursor:
             async for raw in cursor:
                 query = self._queries[raw.pop("__src")]

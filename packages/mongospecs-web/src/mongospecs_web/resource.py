@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import logging
 import typing as t
 from dataclasses import dataclass, field
 
@@ -31,6 +32,8 @@ __all__ = ["Create", "Ctx", "Delete", "Get", "List", "Operation", "Patch", "Requ
 
 T = t.TypeVar("T")
 F = t.TypeVar("F", bound=t.Callable[..., t.Any])
+
+log = logging.getLogger("mongospecs_web")
 
 # Built-in operation kinds. Used as keys for ``ops=``, ``guards=`` and hooks.
 List = "list"
@@ -191,12 +194,17 @@ class Resource(t.Generic[T]):
         include: t.Sequence[str] = (),
         page: Pagination | None = None,
         tags: t.Sequence[str] | None = None,
+        server_fields: t.Callable[[Ctx[T]], t.Any] | None = None,
     ) -> None:
         self.model = model
         self.view: View = view_of(model)
         self.name = name or self.view.meta.collection
         self.backend: ResourceBackend[T] = backend if backend is not None else MongoBackend(model)
         self.scope_fn = scope
+        self.server_fields = server_fields
+        """``server_fields(ctx) -> dict`` of values the server sets on create (the author of a
+        review, a tenant id). They are not subject to the field policy, so the fields can stay
+        closed to clients with ``Policy(insert=False)``."""
         self.includes: tuple[str, ...] = tuple(include)
         for path in self.includes:
             head = path.partition(".")[0]
@@ -320,7 +328,11 @@ class Resource(t.Generic[T]):
                 await _maybe(hook(ctx, ctx.state.get("result", result)))
             return self._respond(op, result, ctx)
         except Exception as exc:
-            return Response.error(exc)
+            response = Response.error(exc)
+            if response.status >= 500:
+                # The client gets a bare 500; the cause belongs in the server log.
+                log.error("%s %s failed", self.name, op.name, exc_info=exc)
+            return response
 
     def _respond(self, op: Operation, result: t.Any, ctx: Ctx[T]) -> Response:
         if isinstance(result, Response):
@@ -471,8 +483,10 @@ class Resource(t.Generic[T]):
             body = ctx.body()
             if body is None:
                 raise Unprocessable("A JSON request body is required.")
-            data = self.view.check_input(body, self.view.insertable, "create")
-            doc = await self.backend.create(dict(data))
+            data = dict(self.view.check_input(body, self.view.insertable, "create"))
+            if self.server_fields is not None:
+                data.update(await _maybe(self.server_fields(ctx)))
+            doc = await self.backend.create(data)
             ctx.state["result"] = doc
             headers = {"location": str(jsonable(getattr(doc, "id", "")))}
             etag = self.view.etag(doc)

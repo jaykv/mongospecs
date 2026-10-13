@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 import re
 import typing as t
 from dataclasses import dataclass
@@ -115,7 +116,10 @@ class Api:
                 principal = self.authenticate(request)
                 request.principal = await principal if inspect.isawaitable(principal) else principal
         except Exception as exc:
-            return Response.error(exc)
+            response = Response.error(exc)
+            if response.status >= 500:
+                logging.getLogger("mongospecs_web").error("authentication failed unexpectedly", exc_info=exc)
+            return response
         return await route.resource.dispatch(route.operation, request)
 
     async def handle(

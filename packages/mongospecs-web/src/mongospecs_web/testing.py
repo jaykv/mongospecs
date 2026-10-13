@@ -158,7 +158,7 @@ class FakeBackend(t.Generic[T]):
 
     async def create(self, data: dict[str, t.Any]) -> T:
         stored = {self.meta.fields[k].stored: v for k, v in data.items()}
-        doc = self.meta.decode(stored, trusted=False)
+        doc = self.meta.decode(stored, stored=False)
         self._check_unique(doc)
         doc.id = ObjectId(f"{self._next:024x}")
         self._next += 1

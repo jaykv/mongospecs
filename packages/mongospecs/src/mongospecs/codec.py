@@ -242,7 +242,7 @@ class Codec(abc.ABC):
     def raw_fields(self, cls: type) -> list[RawField]: ...
 
     @abc.abstractmethod
-    def _decode(self, cls: type, doc: dict[str, t.Any], trusted: bool) -> t.Any: ...
+    def _decode(self, cls: type, doc: dict[str, t.Any], lax: bool) -> t.Any: ...
 
     @abc.abstractmethod
     def _encode(self, obj: t.Any) -> dict[str, t.Any]:
@@ -293,8 +293,13 @@ class Codec(abc.ABC):
             cache[cls] = hit
         return hit
 
-    def decode(self, cls: type, doc: t.Any, *, trusted: bool = False) -> t.Any:
-        """Build a model from a MongoDB document (a mapping or raw BSON bytes)."""
+    def decode(self, cls: type, doc: t.Any, *, lax: bool = False) -> t.Any:
+        """Build a model from a MongoDB document (a mapping or raw BSON bytes).
+
+        ``lax`` is for documents read back from the database: it tolerates the
+        representations other writers produce (an integer stored as a double,
+        for instance) where the backend would otherwise be strict.
+        """
         if isinstance(doc, bytes | bytearray | memoryview):
             doc = bson.decode(bytes(doc))
         elif isinstance(doc, RawBSONDocument):
@@ -302,7 +307,7 @@ class Codec(abc.ABC):
         to_native, _ = self._renames(cls)
         if to_native:
             doc = {to_native.get(k, k): v for k, v in doc.items()}
-        return self._decode(cls, doc, trusted)
+        return self._decode(cls, doc, lax)
 
     def encode(self, obj: t.Any) -> dict[str, t.Any]:
         """Encode a model to a BSON-ready dict keyed by stored names."""

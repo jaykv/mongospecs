@@ -234,9 +234,6 @@ class SpecConfig:
     upcast: t.Callable[[dict[str, t.Any]], dict[str, t.Any]] | None = None
     """Called with each raw document before decoding, to migrate old shapes lazily."""
 
-    trusted: bool = False
-    """Skip read validation where the backend allows it."""
-
     max_time_ms: int | None = None
     read_preference: t.Any = None
     read_concern: t.Any = None

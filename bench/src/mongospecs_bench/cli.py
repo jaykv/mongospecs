@@ -4,6 +4,7 @@
 
     mongospecs-bench run B1 B2            # workloads (default: all)
     mongospecs-bench run B3 --topology sharded
+    mongospecs-bench run LOAD             # the storefront as a real server under HTTP load
     mongospecs-bench stress               # X1-X7
     mongospecs-bench trace                # Sentry SDK -> rustrak, end to end
     mongospecs-bench report               # markdown summary of the newest results
@@ -83,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="mongospecs-bench", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     sub = parser.add_subparsers(dest="command", required=True)
-    for name, choices in (("run", WORKLOADS), ("stress", SCENARIOS)):
+    for name, choices in (("run", [*WORKLOADS, "LOAD"]), ("stress", SCENARIOS)):
         cmd = sub.add_parser(name)
         cmd.add_argument("names", nargs="*", choices=[*choices, []], default=[])
         cmd.add_argument("--topology", choices=("rs", "sharded"), default="rs")
@@ -101,9 +102,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "report":
         print(report(RESULTS / args.folder if args.folder else None))
         return 0
+    from mongospecs_bench.load import load
+
+    WORKLOADS = {**WORKLOADS, "LOAD": load}
     registry = WORKLOADS if args.command == "run" else SCENARIOS
     settings = Settings(args.topology, args.quick, tuple(args.backend or ("msgspec", "pydantic", "attrs")))
-    return asyncio.run(_run(list(args.names) or list(registry), registry, settings))
+    default = [name for name in registry if name != "LOAD"]
+    return asyncio.run(_run(list(args.names) or default, registry, settings))
 
 
 if __name__ == "__main__":

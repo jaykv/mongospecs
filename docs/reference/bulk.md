@@ -1,0 +1,3 @@
+# mongospecs.bulk
+
+::: mongospecs.bulk

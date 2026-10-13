@@ -1,0 +1,12 @@
+{
+  "name": "mongospecs-bench-mongoose",
+  "private": true,
+  "type": "module",
+  "description": "Mongoose comparator for the mongospecs benchmark track. Not published.",
+  "scripts": {
+    "bench": "node --expose-gc bench.mjs"
+  },
+  "dependencies": {
+    "mongoose": "^8.9.0"
+  }
+}

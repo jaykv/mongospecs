@@ -62,11 +62,9 @@ class MsgspecCodec(Codec):
     def raw_fields(self, cls: type) -> list[RawField]:
         return [(f.name, f.encode_name, f.type, f.required) for f in msgspec.structs.fields(cls)]
 
-    def _decode(self, cls: type, doc: dict[str, t.Any], trusted: bool) -> t.Any:
-        # msgspec has no unvalidated construction path; conversion is cheap, so
-        # ``trusted`` changes nothing here.
+    def _decode(self, cls: type, doc: dict[str, t.Any], lax: bool) -> t.Any:
         try:
-            return msgspec.convert(doc, cls, dec_hook=dec_hook)
+            return msgspec.convert(doc, cls, dec_hook=dec_hook, strict=not lax)
         except (msgspec.ValidationError, ValueError) as exc:
             raise _error(cls, exc) from exc
 

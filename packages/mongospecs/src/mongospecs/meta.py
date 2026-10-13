@@ -234,13 +234,15 @@ class ModelMeta:
 
     # -- encode / decode -------------------------------------------------------
 
-    def decode(self, doc: t.Any, *, trusted: bool | None = None) -> t.Any:
+    def decode(self, doc: t.Any, *, stored: bool = True) -> t.Any:
+        """Build a model. ``stored=True`` (the default) is for documents read from the database;
+        pass ``stored=False`` for input, which is held to the backend's strict rules."""
         if self.config.upcast is not None:
             doc = self.config.upcast(dict(doc))
         cls = self.model
         if self.disc_key:
             cls = self.subclass_for(doc.get(self.disc_key))
-        return self.codec.decode(cls, doc, trusted=self.config.trusted if trusted is None else trusted)
+        return self.codec.decode(cls, doc, lax=stored)
 
     def encode(self, obj: t.Any) -> dict[str, t.Any]:
         doc = self.codec.encode(obj)

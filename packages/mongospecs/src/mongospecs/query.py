@@ -30,8 +30,6 @@ T = t.TypeVar("T")
 
 Mode = t.Literal["tracked", "lean", "raw"]
 
-# find() option name -> aggregate() option name
-_AGG_OPTIONS = {"max_time_ms": "maxTimeMS", "batch_size": "batchSize", "allow_disk_use": "allowDiskUse"}
 _FIND_OPTIONS = frozenset(
     {"max_time_ms", "batch_size", "allow_disk_use", "hint", "comment", "collation", "no_cursor_timeout"}
 )
@@ -309,13 +307,15 @@ class Query(t.Generic[T]):
 
     # -- execution -------------------------------------------------------------
 
-    async def _cursor(self, plan: dict[str, t.Any]) -> t.Any:
+    async def _cursor(self, plan: dict[str, t.Any], *, raw_bson: bool = False) -> t.Any:
         manager = self._manager
         kw = manager._read_kw(self._session, self._options)
+        collection = manager.raw_collection if raw_bson else manager.collection
         if "pipeline" in plan:
-            agg_kw = {_AGG_OPTIONS.get(k, k): v for k, v in kw.items() if k != "no_cursor_timeout"}
-            return await manager.collection.aggregate(plan["pipeline"], **agg_kw)
-        return manager.collection.find(
+            return await collection.aggregate(
+                plan["pipeline"], **manager._agg_kw(self._session, self._options)
+            )
+        return collection.find(
             plan["filter"],
             plan["projection"],
             sort=plan["sort"] or None,
@@ -334,40 +334,49 @@ class Query(t.Generic[T]):
         lookups, batched, partial = plan["lookups"], plan["batched"], plan["partial"]
         size = chunk or self._options.get("batch_size") or _CHUNK
         mode = self._mode
+        # Tracked reads ask the driver for undecoded BSON: the bytes are the snapshot, so nothing
+        # is re-encoded at load time. With $lookup the stored form is not what came back, so the
+        # snapshot is rebuilt from the decoded document instead.
+        raw_bson = mode == "tracked" and not lookups
+        options = manager.registry._codec_options
 
-        async def flush(raws: list[dict[str, t.Any]]) -> list[t.Any]:
-            joined = [pop_lookups(raw, lookups) for raw in raws] if lookups else None
-            if mode == "raw":
-                items: list[t.Any] = raws
-            else:
-                items = []
-                for raw in raws:
-                    doc = meta.decode(raw)
-                    if mode == "tracked":
-                        tracking.track(doc, meta_of(type(doc)).encode(doc), manager, partial)
+        async def flush(raws: list[t.Any]) -> list[t.Any]:
+            if raw_bson:
+                items: list[t.Any] = []
+                decode = meta.decode
+                for item in raws:
+                    data = item.raw
+                    doc = decode(bson.decode(data, options))
+                    tracking.track(doc, data, manager, partial)
                     items.append(doc)
-            if joined is not None:
-                attach_lookups(manager, items, joined, lookups, mode)
+            else:
+                joined = [pop_lookups(raw, lookups) for raw in raws] if lookups else None
+                if mode == "raw":
+                    items = raws
+                else:
+                    items = []
+                    for raw in raws:
+                        doc = meta.decode(raw)
+                        if mode == "tracked":
+                            tracking.track(doc, meta_of(type(doc)).encode(doc), manager, partial)
+                        items.append(doc)
+                if joined is not None:
+                    attach_lookups(manager, items, joined, lookups, mode)
             if batched:
                 await load_batched(manager, items, batched, mode, self._session)
             return items
 
         with manager._op("find"):
-            cursor = await self._cursor(plan)
+            cursor = await self._cursor(plan, raw_bson=raw_bson)
         async with cursor:
-            buffer: list[dict[str, t.Any]] = []
             while True:
                 with manager._op("find"):
-                    try:
-                        raw = await cursor.__anext__()
-                    except StopAsyncIteration:
-                        break
-                buffer.append(raw)
-                if len(buffer) >= size:
-                    yield await flush(buffer)
-                    buffer = []
-            if buffer:
-                yield await flush(buffer)
+                    batch = await cursor.to_list(size)
+                if not batch:
+                    break
+                yield await flush(batch)
+                if len(batch) < size:
+                    break
 
     async def __aiter__(self) -> t.AsyncIterator[T]:
         async for chunk in self._chunks():
@@ -376,7 +385,9 @@ class Query(t.Generic[T]):
 
     async def all(self) -> list[T]:
         out: list[T] = []
-        async for chunk in self._chunks():
+        # Without batched relations there is nothing to do per chunk, so fetch in large steps.
+        step = None if self._includes else 10_000
+        async for chunk in self._chunks(step):
             out.extend(chunk)
         if self._fail and not out:
             raise DocumentNotFound(f"{self._manager.model.__name__}: no document matched")
@@ -402,11 +413,10 @@ class Query(t.Generic[T]):
 
     async def count(self) -> int:
         manager = self._manager
-        kw = manager._read_kw(self._session, self._options)
         agg_kw = {
-            _AGG_OPTIONS.get(k, k): v
-            for k, v in kw.items()
-            if k in ("session", "max_time_ms", "hint", "collation", "comment")
+            k: v
+            for k, v in manager._agg_kw(self._session, self._options).items()
+            if k in ("session", "maxTimeMS", "hint", "collation", "comment")
         }
         if self._skip:
             agg_kw["skip"] = self._skip
@@ -514,7 +524,9 @@ class Query(t.Generic[T]):
 
         Without ``number`` this is cursor (keyset) pagination: pass the previous
         page's ``next_cursor`` as ``after``. The sort is made total by appending
-        ``_id``; sort fields should not be null. With ``number`` (1-based) it is
+        ``_id``, so the index serving it should end in ``_id`` (``Index("price", "id")``);
+        otherwise the server sorts in memory. Sort fields should not be null.
+        With ``number`` (1-based) it is
         offset pagination. ``total=True`` adds a count of all matches.
         """
         if size < 1:

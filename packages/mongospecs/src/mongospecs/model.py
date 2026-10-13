@@ -247,22 +247,25 @@ class Document:
             refs = _REF_FIELDS[cls] = _ref_fields(cls)
         if not refs:
             return
-        from mongospecs.refs import Ref
+        from mongospecs.refs import Ref, coerce_ref
 
+        # coerce_ref also turns an id given as a string into the target's id type.
         for name, shape, model in refs:
             value = getattr(self, name)
             if value is None:
                 continue
             if shape == "one":
                 if type(value) is not Ref:
-                    setattr(self, name, Ref(value, model))
+                    setattr(self, name, coerce_ref(value, model))
                 elif value._model is None:
                     value._model = model
             elif shape == "list":
                 if any(type(v) is not Ref for v in value):
-                    setattr(self, name, [v if type(v) is Ref else Ref(v, model) for v in value])
+                    setattr(self, name, [v if type(v) is Ref else coerce_ref(v, model) for v in value])
             elif any(type(v) is not Ref for v in value.values()):
-                setattr(self, name, {k: v if type(v) is Ref else Ref(v, model) for k, v in value.items()})
+                setattr(
+                    self, name, {k: v if type(v) is Ref else coerce_ref(v, model) for k, v in value.items()}
+                )
 
 
 _codec_module._DOCUMENT = Document

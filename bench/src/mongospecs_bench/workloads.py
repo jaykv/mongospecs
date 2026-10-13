@@ -53,9 +53,8 @@ async def b1(settings: Settings) -> Result:
         for backend in settings.backends:
             meta = meta_of(model_for(backend, shape))
             modes: dict[str, t.Callable[[], t.Any]] = {
-                "validated": lambda: [meta.decode(d, trusted=False) for d in docs],
-                "trusted": lambda: [meta.decode(d, trusted=True) for d in docs],
-                "tracked": lambda: [meta.encode(meta.decode(d, trusted=False)) for d in docs],
+                "decode": lambda: [meta.decode(d) for d in docs],
+                "decode + encode": lambda: [meta.encode(meta.decode(d)) for d in docs],
             }
             for mode, fn in modes.items():
                 timing = measure_sync(fn, repeat=settings.repeat)
@@ -67,8 +66,9 @@ async def b1(settings: Settings) -> Result:
                     us_per_doc=round(timing.median_ms * 1000 / n, 2),
                     vs_bson=_ratio(timing.median_ms, base.median_ms),
                 )
-    result.notes.append("'tracked' is decode plus the encode that builds the change-tracking snapshot.")
-    result.notes.append("'trusted' only differs for flat pydantic models; msgspec and attrs always convert.")
+    result.notes.append(
+        "'decode' always validates. 'decode + encode' adds turning the model back into a BSON-ready dict (what a save does)."
+    )
     return result
 
 
@@ -341,6 +341,17 @@ async def b5(settings: Settings) -> Result:
         manager = registry.manager(ns.Small)
         await manager.collection.insert_many([raw_document("small", i) for i in range(total)])
         await manager.collection.create_index([("n", 1)])
+        # Cursor pagination sorts by (key, _id). An index on the key alone cannot provide that
+        # order, so the server sorts in memory; measure that first, then add the right index.
+        unindexed = await measure(lambda: manager.find().sort("n").lean().page(size), repeat=settings.repeat)
+        result.add(
+            page="1, index on (n) only",
+            skip=0,
+            offset_ms="",
+            cursor_ms=round(unindexed.median_ms, 3),
+            offset_vs_cursor="",
+        )
+        await manager.collection.create_index([("n", 1), ("_id", 1)])
         for page in (1, 100, total // size // 2, total // size - 1):
             if page < 1 or page * size > total:
                 continue
@@ -393,7 +404,9 @@ async def b5(settings: Settings) -> Result:
             cursor_ms="",
             offset_vs_cursor="",
         )
-        result.notes.append(f"Collection of {total} documents, page size {size}, sorted on an indexed field.")
+        result.notes.append(
+            f"Collection of {total} documents, page size {size}; index on (n, _id) unless stated."
+        )
         result.notes.append(
             "$facet returns the page and the total as one document, so the page is bound by the 16MB limit."
         )

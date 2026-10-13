@@ -40,6 +40,8 @@ __all__ = ["BulkResult", "Manager"]
 T = t.TypeVar("T")
 
 _MANAGED_MARKERS = (CreatedAt, UpdatedAt, DeletedAt, Revision)
+# find() option name -> aggregate() option name
+_AGG_NAMES = {"max_time_ms": "maxTimeMS", "batch_size": "batchSize", "allow_disk_use": "allowDiskUse"}
 
 
 class BulkResult(t.Generic[T]):
@@ -84,6 +86,7 @@ class Manager(t.Generic[T]):
             *(f.name for f in self.meta.fields.values() if any(f.has(m) for m in _MANAGED_MARKERS)),
         )
         self._collection: AsyncCollection[dict[str, t.Any]] | None = None
+        self._raw_collection: t.Any = None
         self._cascades: list[t.Any] | None = None
 
     # -- plumbing --------------------------------------------------------------
@@ -104,6 +107,16 @@ class Manager(t.Generic[T]):
                 self.meta.collection, **options
             )
         return self._collection
+
+    @property
+    def raw_collection(self) -> t.Any:
+        """The collection, configured to hand back undecoded BSON (used for tracked reads)."""
+        if self._raw_collection is None or not self.registry.is_open:
+            from bson.raw_bson import RawBSONDocument
+
+            options = self.registry._codec_options.with_options(document_class=RawBSONDocument)
+            self._raw_collection = self.collection.with_options(codec_options=options)
+        return self._raw_collection
 
     def using(
         self,
@@ -150,6 +163,11 @@ class Manager(t.Generic[T]):
         if "collation" not in kw and self.meta.config.collation is not None:
             kw["collation"] = self.meta.config.collation
         return kw
+
+    def _agg_kw(self, session: t.Any, options: t.Mapping[str, t.Any] | None = None) -> dict[str, t.Any]:
+        """Read options spelled the way ``aggregate`` and ``count_documents`` expect them."""
+        kw = self._read_kw(session, options)
+        return {_AGG_NAMES.get(k, k): v for k, v in kw.items() if k != "no_cursor_timeout"}
 
     def scoped(
         self,
@@ -517,7 +535,9 @@ class Manager(t.Generic[T]):
         With ``ordered=False`` the server attempts every document; failures are
         reported in ``BulkResult.errors`` instead of raising.
         """
-        items: list[t.Any] = [self.meta.decode(dict(d)) if isinstance(d, t.Mapping) else d for d in docs]
+        items: list[t.Any] = [
+            self.meta.decode(dict(d), stored=False) if isinstance(d, t.Mapping) else d for d in docs
+        ]
         if not items:
             return BulkResult([], [])
         ctx = self.ctx("insert", session, many=True)
@@ -716,16 +736,16 @@ class Aggregate(t.Generic[T]):
         decode = self._decoder()
         with manager._op("aggregate"):
             cursor = await manager.collection.aggregate(
-                self.compiled(), **manager._read_kw(self._session, self._options)
+                self.compiled(), **manager._agg_kw(self._session, self._options)
             )
         async with cursor:
             while True:
                 with manager._op("aggregate"):
-                    try:
-                        raw = await cursor.__anext__()
-                    except StopAsyncIteration:
-                        return
-                yield decode(raw)
+                    batch = await cursor.to_list(1000)
+                for raw in batch:
+                    yield decode(raw)
+                if len(batch) < 1000:
+                    return
 
     async def all(self) -> list[T]:
         return [item async for item in self]

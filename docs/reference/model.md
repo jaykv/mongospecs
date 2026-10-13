@@ -1,0 +1,3 @@
+# mongospecs.model
+
+::: mongospecs.model

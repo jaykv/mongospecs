@@ -84,6 +84,15 @@ class UpdateCount(int):
     def __repr__(self) -> str:
         return f"UpdateCount(matched={self.matched}, modified={self.modified})"
 
+    def __str__(self) -> str:
+        return int.__repr__(self)
+
+    def __format__(self, spec: str) -> str:
+        return int(self).__format__(spec)
+
+    def __reduce__(self) -> tuple[t.Any, ...]:
+        return (UpdateCount, (self.matched, self.modified))
+
 
 class Manager(t.Generic[T]):
     def __init__(

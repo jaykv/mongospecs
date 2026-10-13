@@ -94,6 +94,38 @@ def _all_subclasses(cls: type) -> list[type]:
     return out
 
 
+RESERVED_FIELD_NAMES: frozenset[str] = frozenset(
+    {
+        "after",
+        "aggregate",
+        "before",
+        "bulk_save",
+        "bulk_write",
+        "changes",
+        "collection",
+        "count",
+        "delete",
+        "estimated_count",
+        "exists",
+        "find",
+        "get",
+        "hydrate",
+        "insert",
+        "insert_many",
+        "is_new",
+        "reload",
+        "save",
+        "scope",
+        "update",
+        "upsert",
+        "using",
+        "watch",
+    }
+)
+"""Attribute names a model field may not use: each is part of the ``Document`` API, and a field
+of the same name would replace it on the class (``Model.count()`` would stop working)."""
+
+
 class ModelMeta:
     """Everything mongospecs derives from a model class."""
 
@@ -108,6 +140,13 @@ class ModelMeta:
         self.fields: dict[str, FieldInfo] = self.codec.fields(model)
         if "id" not in self.fields:
             raise ConfigurationError(f"{model.__name__} has no `id` field")
+        shadowed = sorted(set(self.fields) & RESERVED_FIELD_NAMES)
+        if shadowed:
+            raise ConfigurationError(
+                f"{model.__name__}: field name {shadowed[0]!r} shadows the document API "
+                f"({model.__name__}.{shadowed[0]} is part of mongospecs). Rename the attribute and keep the "
+                f"stored key with Annotated[..., Alias({shadowed[0]!r})]."
+            )
         self.id = self.fields["id"]
         self.by_stored: dict[str, FieldInfo] = {f.stored: f for f in self.fields.values()}
         self.deferred: tuple[str, ...] = tuple(f.stored for f in self.fields.values() if f.has(Deferred))
@@ -202,15 +241,25 @@ class ModelMeta:
         if loose is None:
             loose = self._loose[info.name] = loosen(info.type)
         try:
-            return to_bson(self.validate_type(loose, value, lax=lax))
+            return to_bson(self._coerce(loose, value, lax))
         except ValidationError as exc:
             elem = element_type(loose)
             if elem is not None and not isinstance(value, list | tuple | set | frozenset):
                 try:
-                    return to_bson(self.validate_type(elem, value, lax=lax))
+                    return to_bson(self._coerce(elem, value, lax))
                 except ValidationError:
                     pass
             raise QueryError(f"cannot cast {value!r} to {self.model.__name__}.{info.name}: {exc}") from exc
+
+    def _coerce(self, tp: t.Any, value: t.Any, lax: bool) -> t.Any:
+        """Cast a filter value. A value of the right type is taken as it is; otherwise text that
+        reads as the field's type is accepted (``"12"`` for an ``int``), on every backend."""
+        if lax:
+            return self.validate_type(tp, value, lax=True)
+        try:
+            return self.validate_type(tp, value)
+        except ValidationError:
+            return self.validate_type(tp, value, lax=True)
 
     def _cast_ref(self, info: FieldInfo, value: t.Any) -> t.Any:
         if isinstance(value, list | tuple | set | frozenset):

@@ -180,7 +180,9 @@ class Api:
             route, Request(route.method, params, query or [], headers or {}, body, None, raw)
         )
         if method == "HEAD":
-            response.body = b""  # same status and headers as GET, no body
+            # Same status and headers as GET, including the length of the body GET would send.
+            response.headers.setdefault("content-length", str(len(response.body)))
+            response.body = b""
         return response
 
     def openapi(self) -> dict[str, t.Any]:

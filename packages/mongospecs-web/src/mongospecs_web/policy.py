@@ -20,6 +20,53 @@ __all__ = ["View", "jsonable", "view_of"]
 
 _MANAGED = (CreatedAt, UpdatedAt, DeletedAt, Revision)
 
+INT64_MIN, INT64_MAX = -(2**63), 2**63 - 1
+"""MongoDB's largest integer type is 64 bits; a larger integer cannot be stored as one."""
+
+
+def _refs(node: t.Any, out: set[str]) -> None:
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "$ref" and isinstance(value, str) and value.startswith("#/$defs/"):
+                out.add(value.rsplit("/", 1)[1])
+            else:
+                _refs(value, out)
+    elif isinstance(node, list):
+        for value in node:
+            _refs(value, out)
+
+
+def _reachable(schema: dict[str, t.Any], defs: dict[str, t.Any]) -> dict[str, t.Any]:
+    """The definitions ``schema`` actually refers to, directly or through one another."""
+    found: set[str] = set()
+    _refs(schema, found)
+    pending = list(found)
+    while pending:
+        inner: set[str] = set()
+        _refs(defs.get(pending.pop(), {}), inner)
+        pending.extend(inner - found)
+        found |= inner
+    return {name: definition for name, definition in defs.items() if name in found}
+
+
+def _has_oversized_int(value: t.Any) -> bool:
+    if isinstance(value, int):
+        return not INT64_MIN <= value <= INT64_MAX
+    if isinstance(value, list):
+        return any(_has_oversized_int(v) for v in value)
+    if isinstance(value, dict):
+        return any(_has_oversized_int(v) for v in value.values())
+    return False
+
+
+def _takes_any_number(tp: t.Any) -> bool:
+    """A float or Decimal field: a large JSON integer becomes one of those and fits."""
+    import decimal
+
+    from mongospecs.codec import strip_optional
+
+    return strip_optional(tp) in (float, decimal.Decimal)
+
 
 class View:
     """What of a model is readable, writable, filterable and sortable from outside."""
@@ -125,12 +172,29 @@ class View:
             )
         if errors:
             raise Unprocessable("The request body names fields that cannot be written.", errors=errors)
+        for key, value in data.items():
+            if _has_oversized_int(value) and not _takes_any_number(self.meta.fields[key].type):
+                errors.append(
+                    {"field": key, "message": f"integers must be between {INT64_MIN} and {INT64_MAX}"}
+                )
+        if errors:
+            raise Unprocessable("The request body failed validation.", errors=errors)
         return data
 
     # -- schemas ----------------------------------------------------------------
 
     def _base(self) -> dict[str, t.Any]:
-        return self.meta.codec.json_schema(self.model)
+        base = self.meta.codec.json_schema(self.model)
+        own = base.get("$defs", {}).get(self.model.__name__)
+        if isinstance(own, dict) and self.private:
+            # The model's own definition survives only where the model refers to itself;
+            # it must not describe more than the Read view does.
+            hidden = self.private | {self.meta.fields[name].stored for name in self.private}
+            own = dict(own)
+            own["properties"] = {k: v for k, v in own.get("properties", {}).items() if k not in hidden}
+            own["required"] = [k for k in own.get("required", []) if k not in hidden]
+            base = {**base, "$defs": {**base["$defs"], self.model.__name__: own}}
+        return base
 
     def schema(self, kind: t.Literal["read", "create", "patch"]) -> dict[str, t.Any]:
         """JSON Schema of one view. ``$defs`` of nested models are kept alongside."""
@@ -158,8 +222,9 @@ class View:
                 schema["required"] = [n for n in required if n in allowed]
         if not schema.get("required"):
             schema.pop("required", None)
-        if "$defs" in base:
-            schema["$defs"] = base["$defs"]
+        defs = _reachable(schema, base.get("$defs", {}))
+        if defs:
+            schema["$defs"] = defs
         return schema
 
 

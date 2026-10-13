@@ -54,7 +54,19 @@ assert await Article.count({"title": "post 3"}) == 1
 assert await Article.count(trusted({"views": {"$mod": [20, 0]}})) == 5
 ```
 
+Filter values are cast to the field's type the same way on every backend: a value of the right
+type is used as it is, and text that reads as the type is accepted (`Q.age == "12"` matches the
+number 12). Anything else raises `QueryError`, as do an empty `Or()`/`Nor()`, a non-text argument
+to `prefix()`/`contains()`, and a sort key that is not a field path. Values given to `update()`
+and to a model's constructor follow the model library's own rules instead (pydantic coerces
+`"7"` to `7`; msgspec and attrs do not).
+
 ## Results
+
+By default one stored document that does not fit the model fails the whole read with
+`ValidationError`. `find().on_invalid("skip")` leaves such documents out, and
+`find().on_invalid("raw")` returns them in place as plain dicts so they can be found and
+repaired.
 
 ```python
 first = await Article.find(Q.views > 0).sort("views").first()  # a document, or None

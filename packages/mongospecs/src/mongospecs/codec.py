@@ -320,12 +320,36 @@ class Codec(abc.ABC):
         _, to_stored = self._renames(cls)
         if to_stored:
             doc = {to_stored.get(k, k): v for k, v in doc.items()}
+        for key in self.absent_when_none(cls):
+            if key in doc and doc[key] is None:
+                del doc[key]
         for f in self._special(cls):
             if f.transient:
                 doc.pop(f.stored, None)
             elif f.ref is not None and f.stored in doc:
                 doc[f.stored] = ref_ids(doc[f.stored], f.ref.shape)
         return doc
+
+    def absent_when_none(self, cls: type) -> frozenset[str]:
+        """Stored keys of the fields whose default is ``None``.
+
+        For these, ``None`` means "no value" and the key is left out of the stored
+        document instead of being written as ``null``. A document without the key
+        decodes back to ``None``, so nothing is lost, and sparse and unique indexes
+        behave as expected: MongoDB indexes an explicit ``null``, so two documents
+        "without" a value would otherwise collide on a unique sparse index.
+        """
+        cache: dict[type, frozenset[str]] = self.__dict__.setdefault("_abs", {})
+        hit = cache.get(cls)
+        if hit is None:
+            defaults = self.defaults(cls)
+            hit = frozenset(
+                f.stored
+                for f in self.fields(cls).values()
+                if f.stored != "_id" and not f.transient and f.name in defaults and defaults[f.name] is None
+            )
+            cache[cls] = hit
+        return hit
 
     def _special(self, cls: type) -> tuple[FieldInfo, ...]:
         cache: dict[type, tuple[FieldInfo, ...]] = self.__dict__.setdefault("_sp", {})
@@ -372,6 +396,7 @@ class Codec(abc.ABC):
         self._fields.clear()
         self.__dict__.pop("_rn", None)
         self.__dict__.pop("_sp", None)
+        self.__dict__.pop("_abs", None)
 
 
 def field_error(cls: type, name: str | None, message: str) -> ValidationError:

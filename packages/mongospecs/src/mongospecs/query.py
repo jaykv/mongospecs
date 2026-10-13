@@ -15,7 +15,7 @@ from dataclasses import dataclass
 import bson
 
 from mongospecs import tracking
-from mongospecs.errors import DocumentNotFound, QueryError
+from mongospecs.errors import DocumentNotFound, QueryError, ValidationError
 from mongospecs.expr import SortInput, and_filters, compile_filter, compile_sort
 from mongospecs.meta import meta_of
 from mongospecs.updates import UpdateOp
@@ -65,6 +65,7 @@ class Query(t.Generic[T]):
         "_conditions",
         "_fail",
         "_includes",
+        "_invalid",
         "_limit",
         "_manager",
         "_mode",
@@ -91,6 +92,7 @@ class Query(t.Generic[T]):
         session: t.Any = None,
         options: t.Mapping[str, t.Any] | None = None,
         fail: bool = False,
+        invalid: str = "raise",
     ) -> None:
         self._manager = manager
         self._conditions = conditions
@@ -104,6 +106,7 @@ class Query(t.Generic[T]):
         self._session = session
         self._options: dict[str, t.Any] = dict(options or {})
         self._fail = fail
+        self._invalid = invalid
 
     def _clone(self, **changes: t.Any) -> Query[T]:
         state = {name.lstrip("_"): getattr(self, name) for name in self.__slots__ if name != "_manager"}
@@ -157,8 +160,11 @@ class Query(t.Generic[T]):
         ``path`` may be nested (``"author.company"``). ``limit`` caps the related
         documents overall; ``per_parent_limit`` caps them per parent document.
         """
-        from mongospecs.relations import add_include
+        from mongospecs.relations import add_include, check_include
 
+        if strategy not in ("auto", "lookup", "batch"):
+            raise QueryError(f"include strategy must be 'auto', 'lookup' or 'batch', got {strategy!r}")
+        check_include(self._manager.meta, path)
         return self._clone(
             includes=add_include(
                 self._includes,
@@ -175,6 +181,18 @@ class Query(t.Generic[T]):
                 strategy=strategy,
             )
         )
+
+    def on_invalid(self, action: t.Literal["raise", "skip", "raw"]) -> Query[T]:
+        """What to do with a stored document that does not fit the model.
+
+        ``"raise"`` (the default) fails the whole read with :class:`ValidationError`.
+        ``"skip"`` leaves such documents out. ``"raw"`` returns them as plain dicts in
+        place, so they can be inspected or repaired; relations are not loaded for them.
+        Skipped documents still count towards ``limit()`` and page sizes.
+        """
+        if action not in ("raise", "skip", "raw"):
+            raise QueryError(f"on_invalid takes 'raise', 'skip' or 'raw', got {action!r}")
+        return self._clone(invalid=action)
 
     def tracked(self) -> Query[T]:
         """Return model instances with change tracking (the default)."""
@@ -343,30 +361,44 @@ class Query(t.Generic[T]):
         raw_bson = mode == "tracked" and not lookups
         options = manager.registry._codec_options
 
+        invalid = self._invalid
+
         async def flush(raws: list[t.Any]) -> list[t.Any]:
-            if raw_bson:
-                items: list[t.Any] = []
-                decode = meta.decode
-                for item in raws:
-                    data = item.raw
-                    doc = decode(bson.decode(data, options))
-                    tracking.track(doc, data, manager, partial)
-                    items.append(doc)
+            misfits: list[tuple[int, t.Any]] = []  # (position, raw document) kept for on_invalid("raw")
+            joined = [pop_lookups(raw, lookups) for raw in raws] if lookups else None
+            if mode == "raw":
+                items: list[t.Any] = raws
             else:
-                joined = [pop_lookups(raw, lookups) for raw in raws] if lookups else None
-                if mode == "raw":
-                    items = raws
-                else:
-                    items = []
-                    for raw in raws:
-                        doc = meta.decode(raw)
-                        if mode == "tracked":
-                            tracking.track(doc, meta_of(type(doc)).encode(doc), manager, partial)
-                        items.append(doc)
+                items = []
+                kept: list[t.Any] = []
+                for position, item in enumerate(raws):
+                    data = item.raw if raw_bson else None
+                    plain = bson.decode(data, options) if data is not None else item
+                    try:
+                        doc = meta.decode(plain)
+                    except ValidationError:
+                        if invalid == "raise":
+                            raise
+                        if invalid == "raw":
+                            misfits.append((position, plain))
+                        continue
+                    if data is not None:
+                        tracking.track(doc, data, manager, partial)
+                    elif mode == "tracked":
+                        tracking.track(doc, meta_of(type(doc)).encode(doc), manager, partial)
+                    items.append(doc)
+                    if joined is not None:
+                        kept.append(joined[position])
                 if joined is not None:
-                    attach_lookups(manager, items, joined, lookups, mode)
+                    joined = kept
+            if joined is not None:
+                attach_lookups(manager, items, joined, lookups, mode)
             if batched:
                 await load_batched(manager, items, batched, mode, self._session)
+            if misfits:  # put the documents that did not fit back where the server returned them
+                raw_at = dict(misfits)
+                valid = iter(items)
+                return [raw_at[i] if i in raw_at else next(valid) for i in range(len(raws))]
             return items
 
         with manager._op("find"):

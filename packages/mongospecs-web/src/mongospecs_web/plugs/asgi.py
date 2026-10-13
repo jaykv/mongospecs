@@ -88,8 +88,9 @@ class AsgiApp:
 
 async def _send(send: Send, response: Response) -> None:
     headers = [(k.lower().encode("latin-1"), v.encode("latin-1")) for k, v in response.headers.items()]
-    if response.body or response.status not in (204, 304):
+    if response.body or response.status not in (204, 304):  # includes the answer to a HEAD
         headers.append((b"content-type", response.media_type.encode("latin-1")))
-    headers.append((b"content-length", str(len(response.body)).encode("latin-1")))
+    if "content-length" not in response.headers:  # HEAD carries the length of the GET body
+        headers.append((b"content-length", str(len(response.body)).encode("latin-1")))
     await send({"type": "http.response.start", "status": response.status, "headers": headers})
     await send({"type": "http.response.body", "body": response.body})

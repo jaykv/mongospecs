@@ -881,6 +881,10 @@ Recorded per §7.1 rule 4. Each one names what changed and why; none invalidates
 | A27 | §4.3 | A8 is superseded: deleting a loaded document checks its revision on hard deletes as well, and `delete(if_rev=)` / HTTP `If-Match` on DELETE are supported | Raised in review |
 | A28 | §4.8 | Web defaults changed after review: totals are opt-in per resource, offset pages are capped by `max_offset`, request reads get a 10s time limit when nothing else sets one, bodies are size-limited while being read on every plug, the row scope is part of the DELETE filter, `Api(openapi=False)` and `Resource(explicit_writes=True)` exist | Raised in review |
 | A29 | §4.5 | `bulk_save` writes are independent: successes are brought in sync in memory and the error lists the failures. `Query.update()` returns an int carrying `.matched` and `.modified`. Cursor pagination always fetches its sort keys. Cascades carry a visited set and work in chunks | Defects reproduced in review, each with a regression test |
+| A30 | §4.2 | A field whose default is `None` is not stored while it is `None` (the key is omitted; setting it to `None` unsets it) | Second review: a unique sparse index collided on stored nulls. Consequence: `exists` filters mean "has a value" |
+| A31 | §4.2 | Field names that shadow the `Document` API raise `ConfigurationError` (`meta.RESERVED_FIELD_NAMES`) | Second review: a field named `count` silently replaced `Model.count()` |
+| A32 | §4.4 | `registry.transaction()` inside a running transaction raises unless `independent=True`. A context variable is used to detect this only; sessions are still always passed explicitly | Second review: an inner transaction committed while the outer aborted |
+| A33 | §4.3 | Filter values are cast by one rule on all backends (exact type, else text that reads as the type). `find().on_invalid("raise" \| "skip" \| "raw")` | Second review |
 
 New node:
 

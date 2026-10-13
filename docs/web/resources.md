@@ -144,6 +144,11 @@ These are set so that a client cannot make the server do unbounded work.
 | `Api(openapi=...)` | `True` | Serve `<prefix>/openapi.json`; turn off to keep the description private |
 | `Resource(explicit_writes=...)` | `False` | When `True`, a field is writable only if its `Policy` says `insert=True` / `update=True` |
 
+An integer outside the 64-bit range MongoDB can store is a 422 with a field error, on create and
+on patch (a float or Decimal field takes it as that type). A guard listed in more than one place
+runs once per request. Private fields appear nowhere in `openapi.json`, and it only publishes
+the nested definitions that the Read, Create and Patch schemas refer to.
+
 `DELETE` honours `If-Match` like `PATCH`, and the row scope is part of the delete's own filter.
 `HEAD` and `OPTIONS` are answered by `api.handle` and the pure ASGI plug; the framework plugs leave
 them to the framework.

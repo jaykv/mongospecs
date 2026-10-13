@@ -63,6 +63,28 @@ def add_include(includes: tuple[Include, ...], path: str, **options: t.Any) -> t
     return (*(i for i in includes if i.name != head), updated)
 
 
+def check_include(meta: t.Any, path: str) -> None:
+    """Raise :class:`QueryError` unless every segment of ``path`` is a relation.
+
+    Called when the query is built, so a mistyped path fails at once and not only
+    when a matching document happens to exist.
+    """
+    metas: tuple[t.Any, ...] = (meta,)
+    for name in path.split("."):
+        holders = [
+            m
+            for m in metas
+            if (f := m.fields.get(name)) is not None and (f.ref is not None or f.backref is not None)
+        ]
+        if not holders:
+            owner = " | ".join(m.model.__name__ for m in metas)
+            raise QueryError(f"{owner}.{name} is not a relation and cannot be included")
+        try:
+            metas = tuple(target for m in holders for target in m.ref_targets(name))
+        except ConfigurationError:
+            return  # a target that is not defined yet; it is reported when the query runs
+
+
 def _relation(manager: Manager[t.Any], include: Include) -> FieldInfo:
     info = manager.meta.fields.get(include.name)
     if info is None or (info.ref is None and info.backref is None):

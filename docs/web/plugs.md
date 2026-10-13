@@ -58,6 +58,25 @@ app = Quart(__name__)
 plug.init_app(app, api, registry=registry)
 ```
 
+Quart queues every body chunk as it arrives, before a view asks for it, so `init_app` also wraps
+the app in `plug.BodyLimit`, which reads API request bodies under `api.max_body` before Quart
+sees them. If you register `plug.blueprint(api)` yourself, add
+`app.asgi_app = plug.BodyLimit(app.asgi_app, api)`.
+
+## What the frameworks decide themselves
+
+The plugs register one route per operation and leave the rest of routing to the framework, so
+three things differ between them. The contract suite does not cover them.
+
+| | Pure ASGI | Starlette | FastAPI | Litestar | Quart |
+|---|---|---|---|---|---|
+| Trailing slash (`/widgets/`) | 200 | 307 redirect | 307 redirect | 200 | 404 |
+| `HEAD` on a `GET` route | 200, with GET's headers and length | 200 | 405 | 405 | 200 |
+| `OPTIONS` | 204 with `Allow` | 405 | 405 | 204 | 200 |
+
+Use the framework's own settings (or its CORS middleware for `OPTIONS`) where you need one
+behaviour everywhere.
+
 ## Writing another plug
 
 Convert the framework's request to `mongospecs_web.Request`, call `await api.run(route, request)`

@@ -138,10 +138,8 @@ async def test_reference_transcript_is_what_the_api_should_do(backend, reference
     assert names("filter eq") == ["bolt"] and names("filter prefix") == ["anvil"]
     assert names("filter in") == ["anvil", "cog"] and names("filter range") == ["cog", "anvil"]
     assert names("filter int cast") == ["anvil", "cog"] and names("filter exists") == [
-        "anvil",
-        "bolt",
-        "cog",
-    ]  # null counts as existing, as in MongoDB
+        "anvil"
+    ]  # an optional field without a value is not stored, so only the widget with a sku has one
     assert got["filter ne with total"]["body"]["page"]["total"] == 2
     assert got["limit is capped"]["body"]["page"]["size"] == 100
     assert names("offset page 1") == ["anvil", "bolt"]

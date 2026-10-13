@@ -90,6 +90,9 @@ except StaleDocumentError:
 assert stale.title == "Final v2"
 ```
 
+A document created by `upsert()` starts at revision 1, one created by `insert()` at 0: an upsert
+is an update, and every update increments the revision.
+
 ## Soft delete
 
 With a `DeletedAt` field, `delete()` hides the document instead of removing it.
@@ -132,6 +135,12 @@ carries `.matched` and `.modified`.
 `registry.transaction(fn)` commits when `fn` returns. The driver re-runs `fn` on transient errors,
 so it must be safe to call twice. If the transaction aborts, documents written inside it are put
 back to their previous in-memory state.
+
+**Transactions do not nest.** MongoDB has no savepoints: a transaction started inside another is
+a separate one that commits on its own and stays committed if the outer one aborts. Calling
+`registry.transaction()` inside a running one raises `TransactionError`; pass the outer `tx` to
+the code that needs it. When a separate commit is what you want (an audit record that must
+survive a rollback), say so: `registry.transaction(fn, independent=True)`.
 
 ```python
 landing = await Article.find(Q.title == "Landing").one()

@@ -333,12 +333,16 @@ class Resource(t.Generic[T]):
         """Run one operation. Never raises: every error becomes a problem+json response."""
         ctx: Ctx[T] = Ctx(self, op, request)
         try:
+            ran: set[int] = set()
             for guard in (
                 *self._all_guards,
                 *self._guards.get(op.kind, ()),
-                *self._guards.get(op.name, ()),
+                *self._guards.get(op.name, ()),  # the same key as the kind for built-in operations
                 *op.guards,
             ):
+                if id(guard) in ran:
+                    continue  # one guard is one check, however many places list it
+                ran.add(id(guard))
                 if not await _maybe(guard(ctx)):
                     raise Forbidden("You are not allowed to do this.")
             for hook in self._before.get(op.name, ()):

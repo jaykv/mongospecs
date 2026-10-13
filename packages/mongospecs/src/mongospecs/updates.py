@@ -252,6 +252,7 @@ def compile_update(
     """Compile operators (plus ``Set`` shorthand keywords) to a MongoDB update document."""
     update: dict[str, dict[str, t.Any]] = {}
     seen: dict[str, str] = {}
+    absent = meta.codec.absent_when_none(meta.model)
     all_ops = [*ops, *([Set(fields)] if fields else [])]
     for op in all_ops:
         if not isinstance(op, UpdateOp):
@@ -260,5 +261,8 @@ def compile_update(
             if path in seen:
                 raise QueryError(f"field {path!r} is updated by both {seen[path]} and {op.op}")
             seen[path] = op.op
-            update.setdefault(op.op, {})[path] = value
+            if value is None and op.op == "$set" and path in absent:
+                update.setdefault("$unset", {})[path] = ""  # None means "no value": the key is not stored
+            else:
+                update.setdefault(op.op, {})[path] = value
     return update

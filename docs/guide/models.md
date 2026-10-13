@@ -26,6 +26,17 @@ class User(Spec):
 - `__spec__` is assigned **without an annotation**. It holds the collection name (default: the
   class name), indexes, and per-model options.
 - With attrs, decorate each model with `@attrs.define(kw_only=True)`.
+- A field whose default is `None` is **not stored while it is `None`**: the key is left out of the
+  document, and a document without the key reads back as `None`. Setting such a field to `None`
+  removes the key (`$unset`). This is what makes `Index("email", unique=True, sparse=True)` work
+  for documents without an email: MongoDB indexes an explicit `null`, so two stored nulls would
+  collide. `Q.email == None` still finds them (it matches a missing key), and `Exists(Q.email)`
+  means "has a value". A field with any other default stores `None` as `null`.
+- A field may not be named after part of the document API (`count`, `find`, `get`, `update`,
+  `delete`, `save`, `insert`, `scope`, `watch`, `changes`, `is_new`, ... the full list is
+  `mongospecs.meta.RESERVED_FIELD_NAMES`); it would replace that method on the class. Doing so
+  raises `ConfigurationError` when the model is first used. Rename the attribute and keep the
+  stored key: `total: Annotated[int, Alias("count")] = 0`.
 
 ## Binding and lifecycle
 

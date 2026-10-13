@@ -1,36 +1,52 @@
-# Publishes the documentation site to GitHub Pages from main.
-# Requires Settings > Pages > Source: "GitHub Actions".
+# Documentation: checked on pull requests that touch it, published to GitHub Pages from main.
+# This is the only pipeline a docs-only change starts (see paths-ignore in ci.yaml).
 name: Docs
 
 on:
+  pull_request:
+    paths:
+      - "**.md"
+      - "docs/**"
+      - "examples/**"
+      - "mkdocs.yaml"
+      - ".github/workflows/docs.yaml"
   push:
     branches: [main]
-    paths: ["docs/**", "examples/**", "zensical.toml", ".github/workflows/docs.yaml"]
+    paths:
+      - "**.md"
+      - "docs/**"
+      - "examples/**"
+      - "mkdocs.yaml"
+      - ".github/workflows/docs.yaml"
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: pages
+  group: docs-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  check:
+    # The pages are executable: build the site strictly and run the examples in it.
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: docker compose -f docker/compose.rs.yaml up -d --wait
+      - run: uv sync --all-packages --group docs --python 3.13
+      - run: make docs
+      - run: uv run pytest packages/mongospecs-web/tests/test_docs_examples.py examples
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --group docs --python 3.13
-      - run: uv run --group docs zensical build --clean
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - run: uv run --group docs mkdocs gh-deploy --strict --force

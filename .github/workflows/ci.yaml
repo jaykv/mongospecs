@@ -1,10 +1,26 @@
 name: CI
 
+# Changes that touch only documentation do not start this pipeline; docs.yaml checks those with
+# one job (it builds the site and runs the examples the pages contain).
 on:
   # Branches are tested through their pull request; a push trigger for them too ran every job twice.
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "claudedocs/**"
+      - "mkdocs.yaml"
+      - "LICENSE"
+      - ".github/workflows/docs.yaml"
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "claudedocs/**"
+      - "mkdocs.yaml"
+      - "LICENSE"
+      - ".github/workflows/docs.yaml"
 
 permissions:
   contents: read

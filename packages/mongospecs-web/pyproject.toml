@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mongospecs-web"
+version = "0.1.0"
+description = "Framework-neutral REST resources for mongospecs models"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Jay", email = "jay.github0@gmail.com" }]
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: AsyncIO",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Internet :: WWW/HTTP",
+    "Typing :: Typed",
+]
+dependencies = ["mongospecs>=0.2.0,<0.3"]
+
+[project.optional-dependencies]
+# Optional: responses are encoded with msgspec when it is installed, with the standard library otherwise.
+msgspec = ["msgspec>=0.19"]
+starlette = ["starlette>=0.40"]
+fastapi = ["fastapi>=0.115"]
+litestar = ["litestar>=2.12"]
+quart = ["quart>=0.19"]
+all = ["starlette>=0.40", "fastapi>=0.115", "litestar>=2.12", "quart>=0.19"]
+
+[project.urls]
+Documentation = "https://jaykv.github.io/mongospecs/"
+Repository = "https://github.com/jaykv/mongospecs"
+Changelog = "https://github.com/jaykv/mongospecs/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mongospecs_web"]

@@ -1,0 +1,70 @@
+{
+  "meta": {
+    "git_sha": "4f3b2c1",
+    "git_dirty": false,
+    "timestamp": "2026-10-13T04:01:56+00:00",
+    "topology": "rs",
+    "quick": false,
+    "mongodb": "8.0.32",
+    "python": "3.13.5",
+    "free_threaded": false,
+    "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "cpus": 8,
+    "versions": {
+      "mongospecs": "0.2.0",
+      "pymongo": "4.18.3",
+      "msgspec": "0.22.0",
+      "pydantic": "2.14.1"
+    }
+  },
+  "workload": "B3",
+  "title": "include(): $lookup vs batched $in",
+  "question": "Which strategy should include(strategy='auto') use, across fan-outs and topologies?",
+  "rows": [
+    {
+      "relation": "list, distinct children",
+      "fan_out": 1,
+      "parents": 400,
+      "batch_ms": 6.716,
+      "lookup_ms": 10.275,
+      "lookup_vs_batch": 1.53
+    },
+    {
+      "relation": "list, distinct children",
+      "fan_out": 10,
+      "parents": 200,
+      "batch_ms": 26.252,
+      "lookup_ms": 20.198,
+      "lookup_vs_batch": 0.77
+    },
+    {
+      "relation": "list, distinct children",
+      "fan_out": 100,
+      "parents": 50,
+      "batch_ms": 97.258,
+      "lookup_ms": 40.653,
+      "lookup_vs_batch": 0.42
+    },
+    {
+      "relation": "list, distinct children",
+      "fan_out": 1000,
+      "parents": 10,
+      "batch_ms": 101.378,
+      "lookup_ms": 82.163,
+      "lookup_vs_batch": 0.81
+    },
+    {
+      "relation": "to-one, 20 shared targets",
+      "fan_out": 1,
+      "parents": 2000,
+      "batch_ms": 20.164,
+      "lookup_ms": 49.826,
+      "lookup_vs_batch": 2.47
+    }
+  ],
+  "notes": [
+    "Strategy choice does not depend on the model backend; measured with msgspec, lean reads."
+  ],
+  "conclusion": "$lookup was faster than batched $in in 3 of 5 cases on rs (lookup/batch ratios: [1.53, 0.77, 0.42, 0.81, 2.47]). Current default: batch."
+}

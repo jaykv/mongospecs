@@ -1,0 +1,19 @@
+# rustrak: a self-hosted, Sentry-compatible server, used to verify tracing end to end.
+#   docker compose -f docker/compose.rustrak.yaml up -d --wait
+#   dashboard and API: http://localhost:8787  (admin@example.com / mongospecs-dev)
+# Development only: the credentials below are throwaway defaults.
+name: mongospecs-rustrak
+services:
+  rustrak:
+    image: rustrak/rustrak-server:${RUSTRAK_VERSION:-latest}
+    ports:
+      - "8787:8080"
+    environment:
+      - SESSION_SECRET_KEY=${RUSTRAK_SESSION_SECRET:-0000000000000000000000000000000000000000000000000000000000000000}
+      - CREATE_SUPERUSER=${RUSTRAK_SUPERUSER:-admin@example.com:mongospecs-dev}
+      - RUSTRAK_TELEMETRY=off
+    volumes:
+      - rustrak_data:/data
+
+volumes:
+  rustrak_data:

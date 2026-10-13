@@ -1,0 +1,258 @@
+{
+  "meta": {
+    "git_sha": "6dc837f",
+    "timestamp": "2026-10-13T05:00:39.969Z",
+    "topology": "rs",
+    "quick": false,
+    "mongodb": "8.0.32",
+    "node": "v22.14.0",
+    "versions": {
+      "mongoose": "8.24.5",
+      "driver": "bundled with mongoose"
+    },
+    "platform": "darwin-arm64"
+  },
+  "workload": "E2",
+  "title": "Mongoose comparator",
+  "question": "What is Mongoose's overhead over the raw Node driver for the same workloads?",
+  "rows": [
+    {
+      "workload": "B1",
+      "shape": "small",
+      "case": "driver bson->object",
+      "n": 10000,
+      "us_per_doc": 0.78,
+      "vs_driver": 1
+    },
+    {
+      "workload": "B1",
+      "shape": "small",
+      "case": "Model.hydrate",
+      "n": 10000,
+      "us_per_doc": 2.08,
+      "vs_driver": 2.67
+    },
+    {
+      "workload": "B1",
+      "shape": "nested",
+      "case": "driver bson->object",
+      "n": 10000,
+      "us_per_doc": 5.07,
+      "vs_driver": 1
+    },
+    {
+      "workload": "B1",
+      "shape": "nested",
+      "case": "Model.hydrate",
+      "n": 10000,
+      "us_per_doc": 23.86,
+      "vs_driver": 4.71
+    },
+    {
+      "workload": "B2",
+      "shape": "small",
+      "case": "driver objects",
+      "n": 1,
+      "median_ms": 0.42,
+      "vs_driver": 1
+    },
+    {
+      "workload": "B2",
+      "shape": "small",
+      "case": "mongoose lean()",
+      "n": 1,
+      "median_ms": 0.442,
+      "vs_driver": 1.05
+    },
+    {
+      "workload": "B2",
+      "shape": "small",
+      "case": "mongoose documents",
+      "n": 1,
+      "median_ms": 0.439,
+      "vs_driver": 1.05
+    },
+    {
+      "workload": "B2",
+      "shape": "small",
+      "case": "driver objects",
+      "n": 100,
+      "median_ms": 0.897,
+      "vs_driver": 1
+    },
+    {
+      "workload": "B2",
+      "shape": "small",
+      "case": "mongoose lean()",
+      "n": 100,
+      "median_ms": 0.72,
+      "vs_driver": 0.8
+    },
+    {
+      "workload": "B2",
+      "shape": "small",
+      "case": "mongoose documents",
+      "n": 100,
+      "median_ms": 0.756,
+      "vs_driver": 0.84
+    },
+    {
+      "workload": "B2",
+      "shape": "small",
+      "case": "driver objects",
+      "n": 10000,
+      "median_ms": 63.424,
+      "vs_driver": 1
+    },
+    {
+      "workload": "B2",
+      "shape": "small",
+      "case": "mongoose lean()",
+      "n": 10000,
+      "median_ms": 22.648,
+      "vs_driver": 0.36
+    },
+    {
+      "workload": "B2",
+      "shape": "small",
+      "case": "mongoose documents",
+      "n": 10000,
+      "median_ms": 53.451,
+      "vs_driver": 0.84
+    },
+    {
+      "workload": "B2",
+      "shape": "nested",
+      "case": "driver objects",
+      "n": 1,
+      "median_ms": 0.331,
+      "vs_driver": 1
+    },
+    {
+      "workload": "B2",
+      "shape": "nested",
+      "case": "mongoose lean()",
+      "n": 1,
+      "median_ms": 0.401,
+      "vs_driver": 1.21
+    },
+    {
+      "workload": "B2",
+      "shape": "nested",
+      "case": "mongoose documents",
+      "n": 1,
+      "median_ms": 0.588,
+      "vs_driver": 1.78
+    },
+    {
+      "workload": "B2",
+      "shape": "nested",
+      "case": "driver objects",
+      "n": 100,
+      "median_ms": 0.948,
+      "vs_driver": 1
+    },
+    {
+      "workload": "B2",
+      "shape": "nested",
+      "case": "mongoose lean()",
+      "n": 100,
+      "median_ms": 0.91,
+      "vs_driver": 0.96
+    },
+    {
+      "workload": "B2",
+      "shape": "nested",
+      "case": "mongoose documents",
+      "n": 100,
+      "median_ms": 3.91,
+      "vs_driver": 4.13
+    },
+    {
+      "workload": "B2",
+      "shape": "nested",
+      "case": "driver objects",
+      "n": 10000,
+      "median_ms": 92.983,
+      "vs_driver": 1
+    },
+    {
+      "workload": "B2",
+      "shape": "nested",
+      "case": "mongoose lean()",
+      "n": 10000,
+      "median_ms": 81.711,
+      "vs_driver": 0.88
+    },
+    {
+      "workload": "B2",
+      "shape": "nested",
+      "case": "mongoose documents",
+      "n": 10000,
+      "median_ms": 352.387,
+      "vs_driver": 3.79
+    },
+    {
+      "workload": "B4",
+      "op": "insert 1000",
+      "case": "driver insertMany",
+      "median_ms": 10.228,
+      "vs_driver": 1
+    },
+    {
+      "workload": "B4",
+      "op": "insert 1000",
+      "case": "Model.insertMany (no plugins)",
+      "median_ms": 14.665,
+      "vs_driver": 1.43
+    },
+    {
+      "workload": "B4",
+      "op": "insert 1000",
+      "case": "Model.insertMany (timestamps+versioning)",
+      "median_ms": 20.153,
+      "vs_driver": 1.97
+    },
+    {
+      "workload": "B4",
+      "op": "patch x200",
+      "case": "driver updateOne",
+      "median_ms": 703.776,
+      "vs_driver": 1
+    },
+    {
+      "workload": "B4",
+      "op": "patch x200",
+      "case": "findByIdAndUpdate (returns doc)",
+      "median_ms": 568.354,
+      "vs_driver": 0.81
+    },
+    {
+      "workload": "B4",
+      "op": "patch x200",
+      "case": "doc.save() delta",
+      "median_ms": 802.97,
+      "vs_driver": 1.14
+    },
+    {
+      "workload": "B8",
+      "mode": "lean()",
+      "n": 5000,
+      "median_ms": 36.59,
+      "vs_lean": 1,
+      "bytes_per_doc": 1910
+    },
+    {
+      "workload": "B8",
+      "mode": "documents (tracked)",
+      "n": 5000,
+      "median_ms": 171.12,
+      "vs_lean": 4.68,
+      "bytes_per_doc": 7168
+    }
+  ],
+  "notes": [
+    "Ratios are against the raw Node driver in the same process. Compare them with mongospecs ratios against pymongo, not absolute times."
+  ],
+  "conclusion": ""
+}

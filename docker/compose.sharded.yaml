@@ -1,0 +1,70 @@
+# Minimal sharded cluster for relation and shard-key tests: one config server,
+# two single-node shards, one mongos.
+#   docker compose -f docker/compose.sharded.yaml up -d --wait
+#   MONGOSPECS_TEST_SHARDED_URI=mongodb://localhost:27118
+name: mongospecs-sharded
+services:
+  cfg:
+    image: mongo:${MONGO_VERSION:-8.0}
+    command: ["mongod", "--configsvr", "--replSet", "cfg", "--bind_ip_all", "--port", "27019"]
+    tmpfs: [/data/db, /data/configdb]
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          mongosh --port 27019 --quiet --eval
+          "try { if (!db.hello().isWritablePrimary) throw 1 } catch (e) {
+          try { rs.initiate({_id: 'cfg', configsvr: true, members: [{_id: 0, host: 'cfg:27019'}]}) } catch (e2) {}
+          quit(1) }"
+      interval: 2s
+      timeout: 10s
+      retries: 60
+  sh1:
+    image: mongo:${MONGO_VERSION:-8.0}
+    command: ["mongod", "--shardsvr", "--replSet", "sh1", "--bind_ip_all", "--port", "27018"]
+    tmpfs: [/data/db]
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          mongosh --port 27018 --quiet --eval
+          "try { if (!db.hello().isWritablePrimary) throw 1 } catch (e) {
+          try { rs.initiate({_id: 'sh1', members: [{_id: 0, host: 'sh1:27018'}]}) } catch (e2) {}
+          quit(1) }"
+      interval: 2s
+      timeout: 10s
+      retries: 60
+  sh2:
+    image: mongo:${MONGO_VERSION:-8.0}
+    command: ["mongod", "--shardsvr", "--replSet", "sh2", "--bind_ip_all", "--port", "27018"]
+    tmpfs: [/data/db]
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          mongosh --port 27018 --quiet --eval
+          "try { if (!db.hello().isWritablePrimary) throw 1 } catch (e) {
+          try { rs.initiate({_id: 'sh2', members: [{_id: 0, host: 'sh2:27018'}]}) } catch (e2) {}
+          quit(1) }"
+      interval: 2s
+      timeout: 10s
+      retries: 60
+  mongos:
+    image: mongo:${MONGO_VERSION:-8.0}
+    command: ["mongos", "--configdb", "cfg/cfg:27019", "--bind_ip_all", "--port", "27118"]
+    ports:
+      - "27118:27118"
+    depends_on:
+      cfg: { condition: service_healthy }
+      sh1: { condition: service_healthy }
+      sh2: { condition: service_healthy }
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          mongosh --port 27118 --quiet --eval
+          "const n = db.getSiblingDB('config').shards.countDocuments({});
+          if (n < 2) { try { sh.addShard('sh1/sh1:27018'); sh.addShard('sh2/sh2:27018') } catch (e) {} quit(1) }"
+      interval: 2s
+      timeout: 20s
+      retries: 60

@@ -1,0 +1,198 @@
+{
+  "meta": {
+    "git_sha": "4f3b2c1",
+    "git_dirty": false,
+    "timestamp": "2026-10-13T04:01:56+00:00",
+    "topology": "rs",
+    "quick": false,
+    "mongodb": "8.0.32",
+    "python": "3.13.5",
+    "free_threaded": false,
+    "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "cpus": 8,
+    "versions": {
+      "mongospecs": "0.2.0",
+      "pymongo": "4.18.3",
+      "msgspec": "0.22.0",
+      "pydantic": "2.14.1"
+    }
+  },
+  "workload": "B4",
+  "title": "Writes",
+  "question": "What does the ODM add to inserts, atomic patches, saves and upserts?",
+  "rows": [
+    {
+      "backend": "msgspec",
+      "op": "insert 1000",
+      "case": "driver insert_many",
+      "median_ms": 8.739,
+      "vs_driver": 1.0
+    },
+    {
+      "backend": "msgspec",
+      "op": "insert 1000",
+      "case": "insert_many (no plugins)",
+      "median_ms": 11.722,
+      "vs_driver": 1.34
+    },
+    {
+      "backend": "msgspec",
+      "op": "insert 1000",
+      "case": "insert_many (timestamps+revision)",
+      "median_ms": 14.774,
+      "vs_driver": 1.69
+    },
+    {
+      "backend": "msgspec",
+      "op": "patch x200",
+      "case": "driver update_one",
+      "median_ms": 648.9,
+      "vs_driver": 1.0
+    },
+    {
+      "backend": "msgspec",
+      "op": "patch x200",
+      "case": "Model.update (returns doc)",
+      "median_ms": 679.692,
+      "vs_driver": 1.05
+    },
+    {
+      "backend": "msgspec",
+      "op": "patch x200",
+      "case": "doc.save() delta",
+      "median_ms": 605.333,
+      "vs_driver": 0.93
+    },
+    {
+      "backend": "msgspec",
+      "op": "upsert x200",
+      "case": "driver update_one(upsert)",
+      "median_ms": 1063.307,
+      "vs_driver": 1.0
+    },
+    {
+      "backend": "msgspec",
+      "op": "upsert x200",
+      "case": "Model.upsert (returns doc)",
+      "median_ms": 992.707,
+      "vs_driver": 0.93
+    },
+    {
+      "backend": "pydantic",
+      "op": "insert 1000",
+      "case": "driver insert_many",
+      "median_ms": 10.299,
+      "vs_driver": 1.0
+    },
+    {
+      "backend": "pydantic",
+      "op": "insert 1000",
+      "case": "insert_many (no plugins)",
+      "median_ms": 13.502,
+      "vs_driver": 1.31
+    },
+    {
+      "backend": "pydantic",
+      "op": "insert 1000",
+      "case": "insert_many (timestamps+revision)",
+      "median_ms": 18.901,
+      "vs_driver": 1.84
+    },
+    {
+      "backend": "pydantic",
+      "op": "patch x200",
+      "case": "driver update_one",
+      "median_ms": 586.275,
+      "vs_driver": 1.0
+    },
+    {
+      "backend": "pydantic",
+      "op": "patch x200",
+      "case": "Model.update (returns doc)",
+      "median_ms": 690.681,
+      "vs_driver": 1.18
+    },
+    {
+      "backend": "pydantic",
+      "op": "patch x200",
+      "case": "doc.save() delta",
+      "median_ms": 598.93,
+      "vs_driver": 1.02
+    },
+    {
+      "backend": "pydantic",
+      "op": "upsert x200",
+      "case": "driver update_one(upsert)",
+      "median_ms": 689.839,
+      "vs_driver": 1.0
+    },
+    {
+      "backend": "pydantic",
+      "op": "upsert x200",
+      "case": "Model.upsert (returns doc)",
+      "median_ms": 935.368,
+      "vs_driver": 1.36
+    },
+    {
+      "backend": "attrs",
+      "op": "insert 1000",
+      "case": "driver insert_many",
+      "median_ms": 10.134,
+      "vs_driver": 1.0
+    },
+    {
+      "backend": "attrs",
+      "op": "insert 1000",
+      "case": "insert_many (no plugins)",
+      "median_ms": 13.516,
+      "vs_driver": 1.33
+    },
+    {
+      "backend": "attrs",
+      "op": "insert 1000",
+      "case": "insert_many (timestamps+revision)",
+      "median_ms": 14.908,
+      "vs_driver": 1.47
+    },
+    {
+      "backend": "attrs",
+      "op": "patch x200",
+      "case": "driver update_one",
+      "median_ms": 602.354,
+      "vs_driver": 1.0
+    },
+    {
+      "backend": "attrs",
+      "op": "patch x200",
+      "case": "Model.update (returns doc)",
+      "median_ms": 584.293,
+      "vs_driver": 0.97
+    },
+    {
+      "backend": "attrs",
+      "op": "patch x200",
+      "case": "doc.save() delta",
+      "median_ms": 644.737,
+      "vs_driver": 1.07
+    },
+    {
+      "backend": "attrs",
+      "op": "upsert x200",
+      "case": "driver update_one(upsert)",
+      "median_ms": 833.59,
+      "vs_driver": 1.0
+    },
+    {
+      "backend": "attrs",
+      "op": "upsert x200",
+      "case": "Model.upsert (returns doc)",
+      "median_ms": 818.948,
+      "vs_driver": 0.98
+    }
+  ],
+  "notes": [
+    "Model.update and Model.upsert use findAndModify to return the document; the driver baseline does not."
+  ],
+  "conclusion": ""
+}

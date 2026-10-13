@@ -885,6 +885,8 @@ Recorded per §7.1 rule 4. Each one names what changed and why; none invalidates
 | A31 | §4.2 | Field names that shadow the `Document` API raise `ConfigurationError` (`meta.RESERVED_FIELD_NAMES`) | Second review: a field named `count` silently replaced `Model.count()` |
 | A32 | §4.4 | `registry.transaction()` inside a running transaction raises unless `independent=True`. A context variable is used to detect this only; sessions are still always passed explicitly | Second review: an inner transaction committed while the outer aborted |
 | A33 | §4.3 | Filter values are cast by one rule on all backends (exact type, else text that reads as the type). `find().on_invalid("raise" \| "skip" \| "raw")` | Second review |
+| A34 | §4.8 | `Policy(private=True)` is enforced on fields of embedded models at any depth: not serialised, a 422 when supplied, absent from schemas | Third review item A. PATCH replaces an embedded object whole, so a client that patches the parent object clears server-set private values inside it; documented, not changed |
+| A35 | §4.2 | `StoreNone` / `OmitNone` markers and `SpecConfig(none="omit" \| "store")`. Embedded models resolve the setting from their own markers, or from a `__spec__` if they declare one; they do not inherit the parent document's setting. A unique sparse index over a field that stores null is a `ConfigurationError`. No warning is raised for a partial filter on `$type: null` over an omitted field | Requested as the opt-out from A30. The embedded rule keeps one model's stored shape the same wherever it is embedded |
 
 New node:
 

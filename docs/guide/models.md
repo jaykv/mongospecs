@@ -38,6 +38,41 @@ class User(Spec):
   raises `ConfigurationError` when the model is first used. Rename the attribute and keep the
   stored key: `total: Annotated[int, Alias("count")] = 0`.
 
+## None: left out, or stored as null
+
+A field whose default is `None` is left out of the document while it is `None`. Where other
+readers of the collection need the key to be present (BI tools, a `$jsonSchema` validator,
+`{field: {$type: "null"}}` queries), store an explicit `null` instead:
+
+```py
+class Contact(Spec):
+    __spec__ = SpecConfig(none="omit")            # the default; "store" flips it for the model
+    nick: str | None = None                        # left out while None
+    email: Annotated[str | None, StoreNone] = None # stored as null
+    # on a model with none="store": Annotated[str | None, OmitNone] opts one field out
+```
+
+| | Left out (default, `OmitNone`) | Stored (`StoreNone`, `none="store"`) |
+|---|---|---|
+| A new document with `None` | no key | `key: null` |
+| `doc.field = None; save()` and `update(field=None)` | `$unset` | `$set: null` |
+| A document created by `upsert()` | no key | `key: null` |
+| `Q.field == None` | matches | matches |
+| `Exists(Q.field)`, `?field[exists]=true` | "has a value" | "the key is present", null included |
+| `Unset("field")` | removes the key | removes the key |
+
+- The setting changes what is written, never what can be read. A stored `null` under the default
+  and a missing key under `StoreNone` both load as `None` with `changes() == {}`, and saving such a
+  document sends nothing for that field. To convert a collection, run one `update_many`.
+- Embedded models follow their own field markers. They omit by default; an embedded model may
+  carry `__spec__ = SpecConfig(none="store")` to change that for its fields.
+- A field that stores `null` cannot be a key of a unique **sparse** index: a sparse index still
+  indexes `null`, so only one document could be without a value. This raises
+  `ConfigurationError` when the model is first used. Use a partial index:
+  `Index("email", unique=True, partial={"email": {"$type": "string"}})`.
+- HTTP responses are the same in both modes (`None` is `null` in JSON). A `PATCH` with `null`
+  follows the field's mode.
+
 ## Binding and lifecycle
 
 Models do nothing until they are bound to an open registry. Constructing a registry does no I/O;

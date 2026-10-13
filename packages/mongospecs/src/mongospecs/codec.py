@@ -18,7 +18,17 @@ import bson
 from bson.raw_bson import RawBSONDocument
 
 from mongospecs.errors import ConfigurationError, ValidationError
-from mongospecs.markers import DEFAULT_POLICY, Alias, Backref, Marker, Policy, To
+from mongospecs.markers import (
+    DEFAULT_POLICY,
+    Alias,
+    Backref,
+    Marker,
+    OmitNone,
+    Policy,
+    SpecConfig,
+    StoreNone,
+    To,
+)
 from mongospecs.refs import Ref, id_of
 
 __all__ = ["Codec", "FieldInfo", "RefInfo", "codec_for", "to_bson"]
@@ -333,6 +343,9 @@ class Codec(abc.ABC):
     def absent_when_none(self, cls: type) -> frozenset[str]:
         """Stored keys of the fields whose default is ``None``.
 
+        ``StoreNone`` on a field, or ``SpecConfig(none="store")`` on its model, takes a
+        field out of this set; ``OmitNone`` puts it back.
+
         For these, ``None`` means "no value" and the key is left out of the stored
         document instead of being written as ``null``. A document without the key
         decodes back to ``None``, so nothing is lost, and sparse and unique indexes
@@ -343,10 +356,16 @@ class Codec(abc.ABC):
         hit = cache.get(cls)
         if hit is None:
             defaults = self.defaults(cls)
+            store = _none_mode(cls) == "store"
             hit = frozenset(
                 f.stored
                 for f in self.fields(cls).values()
-                if f.stored != "_id" and not f.transient and f.name in defaults and defaults[f.name] is None
+                if f.stored != "_id"
+                and not f.transient
+                and f.name in defaults
+                and defaults[f.name] is None
+                and not f.has(StoreNone)
+                and (not store or f.has(OmitNone))
             )
             cache[cls] = hit
         return hit
@@ -397,6 +416,19 @@ class Codec(abc.ABC):
         self.__dict__.pop("_rn", None)
         self.__dict__.pop("_sp", None)
         self.__dict__.pop("_abs", None)
+        self.__dict__.pop("_eo", None)
+
+
+def _none_mode(cls: type) -> str:
+    """``"omit"`` or ``"store"`` for a model class: from its SpecConfig, own or inherited."""
+    from mongospecs.model import Document
+
+    if isinstance(cls, type) and issubclass(cls, Document):
+        from mongospecs.meta import resolve_config
+
+        return resolve_config(cls).none
+    config = getattr(cls, "__spec__", None)  # an embedded model may declare one
+    return config.none if isinstance(config, SpecConfig) else "omit"
 
 
 def field_error(cls: type, name: str | None, message: str) -> ValidationError:

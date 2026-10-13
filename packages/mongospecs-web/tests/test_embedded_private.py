@@ -169,3 +169,46 @@ def test_views_without_embedded_private_fields_do_no_extra_work():
     from mongospecs_web.testing import contract_api
 
     assert view_of(contract_api("msgspec").resources[0].model)._nested == {}
+
+
+async def test_null_in_a_request_follows_the_fields_mode(request, make_registry):
+    """PATCH/POST with an explicit null: unset where None is omitted, stored where StoreNone says so."""
+    from mongospecs import StoreNone
+
+    results = {}
+    for backend in BACKENDS:
+        if backend == "attrs":
+            import attrs
+
+            from mongospecs.attrs import Spec
+
+            define = attrs.define(kw_only=True)
+        else:
+            Spec = __import__(f"mongospecs.{backend}", fromlist=["Spec"]).Spec
+            define = lambda c: c  # noqa: E731
+
+        @define
+        class Contact(Spec):
+            __spec__ = SpecConfig(collection=f"contacts_{backend}")
+            name: str = ""
+            nick: str | None = None
+            email: t.Annotated[str | None, StoreNone] = None
+
+        await make_registry(Contact)
+        api = Api(Resource(Contact, name="contacts", ops=[Get, Create, Patch]), prefix="/v1")
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=api.asgi()), base_url="http://t"
+        ) as client:
+            created = await client.post("/v1/contacts", json={"name": "a", "nick": None, "email": None})
+            assert created.status_code == 201 and created.json()["data"]["nick"] is None
+            oid = Contact.collection()
+            stored = await oid.find_one({"name": "a"})
+            assert "nick" not in stored and "email" in stored and stored["email"] is None
+            await oid.update_one({"_id": stored["_id"]}, {"$set": {"nick": "n", "email": "e"}})
+            patched = await client.patch(f"/v1/contacts/{stored['_id']}", json={"nick": None, "email": None})
+            assert patched.status_code == 200
+            assert patched.json()["data"]["nick"] is None and patched.json()["data"]["email"] is None
+            stored = await oid.find_one({"_id": stored["_id"]})
+            assert "nick" not in stored and "email" in stored and stored["email"] is None
+            results[backend] = patched.json()["data"].keys()
+    assert len(results) == 3

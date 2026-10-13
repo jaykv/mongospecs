@@ -22,10 +22,12 @@ __all__ = [
     "Immutable",
     "Index",
     "Marker",
+    "OmitNone",
     "OnDelete",
     "Policy",
     "Revision",
     "SpecConfig",
+    "StoreNone",
     "To",
     "UpdatedAt",
     "computed",
@@ -57,6 +59,18 @@ class Revision(Marker):
 
 class Immutable(Marker):
     """The field cannot change after insert."""
+
+
+class StoreNone(Marker):
+    """Store ``None`` as an explicit ``null`` instead of leaving the key out.
+
+    By default a field whose default is ``None`` is not stored while it is ``None``.
+    Use this where other readers of the collection expect the key to be present.
+    """
+
+
+class OmitNone(Marker):
+    """Leave the key out while the value is ``None``, on a model declared with ``none="store"``."""
 
 
 class Deferred(Marker):
@@ -244,4 +258,9 @@ class SpecConfig:
     """Options for ``create_collection`` (``timeseries``, ``capped``, ``size``, ...)."""
 
     json_schema_validation: t.Literal["off", "moderate", "strict"] = "off"
+    none: t.Literal["omit", "store"] = "omit"
+    """What to write for a field whose default is ``None`` while its value is ``None``:
+    leave the key out (``"omit"``) or store ``null`` (``"store"``). ``StoreNone`` and
+    ``OmitNone`` on a field override it. Embedded models may carry a ``__spec__`` with
+    this setting too; without one they omit."""
     """Install a derived ``$jsonSchema`` validator when indexes and options are applied."""

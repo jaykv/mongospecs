@@ -9,7 +9,7 @@ from typing import ClassVar
 import pydantic
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-from mongospecs.codec import Codec, RawField, field_error
+from mongospecs.codec import _UNION_ORIGINS, Codec, RawField, field_error
 from mongospecs.errors import ValidationError
 from mongospecs.markers import SpecConfig
 from mongospecs.model import Document
@@ -38,6 +38,45 @@ def _annotation(info: t.Any) -> t.Any:
     return info.annotation
 
 
+class _Omit:
+    """Which keys of an embedded model are left out while None, and where its own embedded models are."""
+
+    __slots__ = ("absent", "children", "elem")
+
+    def __init__(self) -> None:
+        self.absent: frozenset[str] = frozenset()
+        self.children: dict[str, _Omit] = {}
+        self.elem: _Omit | None = None
+
+    def active(self, seen: set[int] | None = None) -> bool:
+        seen = set() if seen is None else seen
+        if id(self) in seen:
+            return False
+        seen.add(id(self))
+        return (
+            bool(self.absent)
+            or any(c.active(seen) for c in self.children.values())
+            or (self.elem is not None and self.elem.active(seen))
+        )
+
+
+def _drop_nones(value: t.Any, plan: _Omit) -> None:
+    if isinstance(value, dict):
+        if plan.elem is not None:
+            for item in value.values():
+                _drop_nones(item, plan.elem)
+            return
+        for key in plan.absent:
+            if key in value and value[key] is None:
+                del value[key]
+        for key, child in plan.children.items():
+            if key in value:
+                _drop_nones(value[key], child)
+    elif isinstance(value, list) and plan.elem is not None:
+        for item in value:
+            _drop_nones(item, plan.elem)
+
+
 class PydanticCodec(Codec):
     name = "pydantic"
 
@@ -60,11 +99,55 @@ class PydanticCodec(Codec):
 
     def _encode(self, obj: t.Any) -> dict[str, t.Any]:
         if _HAS_EXCLUDE_COMPUTED:
-            return t.cast("dict[str, t.Any]", obj.model_dump(by_alias=True, exclude_computed_fields=True))
-        doc: dict[str, t.Any] = obj.model_dump(by_alias=True)
-        for name in type(obj).model_computed_fields:
-            doc.pop(name, None)
+            doc: dict[str, t.Any] = obj.model_dump(by_alias=True, exclude_computed_fields=True)
+        else:
+            doc = obj.model_dump(by_alias=True)
+            for name in type(obj).model_computed_fields:
+                doc.pop(name, None)
+        # model_dump also dumps embedded models, so the "None is not stored" rule of each
+        # embedded model has to be applied here; the other backends encode them one by one.
+        for key, plan in self._embedded_omits(type(obj)):
+            if key in doc:
+                _drop_nones(doc[key], plan)
         return doc
+
+    def _embedded_omits(self, cls: type) -> tuple[tuple[str, _Omit], ...]:
+        cache: dict[type, tuple[tuple[str, _Omit], ...]] = self.__dict__.setdefault("_eo", {})
+        hit = cache.get(cls)
+        if hit is None:
+            plans: dict[type, _Omit] = {}
+            natives = {name: native for name, native, _, _ in self.raw_fields(cls)}
+            hit = tuple(
+                (natives[name], plan)
+                for name, info in self.fields(cls).items()
+                if (plan := self._omit_plan(info.type, plans)) is not None and plan.active()
+            )
+            cache[cls] = hit
+        return hit
+
+    def _omit_plan(self, tp: t.Any, plans: dict[type, _Omit]) -> _Omit | None:
+        while t.get_origin(tp) is t.Annotated:
+            tp = t.get_args(tp)[0]
+        if t.get_origin(tp) is None:
+            if not (isinstance(tp, type) and issubclass(tp, BaseModel)) or issubclass(tp, Document):
+                return None
+            plan = plans.get(tp)
+            if plan is None:
+                plan = plans[tp] = _Omit()
+                plan.absent = self.absent_when_none(tp)
+                for name, _native, annotation, _ in self.raw_fields(tp):
+                    child = self._omit_plan(annotation, plans)
+                    if child is not None:
+                        plan.children[self.fields(tp)[name].stored] = child
+            return plan
+        parts = [p for arg in t.get_args(tp) if (p := self._omit_plan(arg, plans)) is not None]
+        if not parts:
+            return None
+        if t.get_origin(tp) in _UNION_ORIGINS:
+            return parts[0]
+        container = _Omit()
+        container.elem = parts[-1]
+        return container
 
     def validate_field(self, cls: type, name: str, value: t.Any) -> t.Any:
         model = t.cast("type[BaseModel]", cls)

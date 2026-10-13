@@ -159,6 +159,29 @@ class ModelMeta:
             f.stored for f in self.fields.values() if not f.transient
         )
 
+        # A sparse index still indexes an explicit null, so a unique sparse index over a field
+        # that stores None as null lets only one document be without a value.
+        absent = self.codec.absent_when_none(model)
+        defaults = self.codec.defaults(model)
+        for index in self.config.indexes:
+            if not (index.unique and index.sparse):
+                continue
+            for key, _ in index.keys:
+                f = self.fields.get(key.partition(".")[0])
+                if (
+                    f is not None
+                    and f.name in defaults
+                    and defaults[f.name] is None
+                    and f.stored not in absent
+                ):
+                    raise ConfigurationError(
+                        f"{model.__name__}.{f.name} stores None as null (StoreNone or none='store') and is a key "
+                        "of a unique sparse index. A sparse index still indexes null, so a second document "
+                        "without a value would be a duplicate. Use a partial index instead, for example "
+                        f"Index({f.name!r}, unique=True, partial={{{f.name!r}: {{'$type': 'string'}}}}), "
+                        "or mark the field OmitNone."
+                    )
+
         for f in self.fields.values():
             if f.has(Deferred) and f.required:
                 raise ConfigurationError(f"{model.__name__}.{f.name}: a Deferred field needs a default")
@@ -318,10 +341,13 @@ class ModelMeta:
         by ``insert()``; otherwise a query on a defaulted value would not find it.
         """
         out: dict[str, t.Any] = {}
+        absent = self.codec.absent_when_none(self.model)
         for name, value in self.codec.defaults(self.model).items():
             info = self.fields.get(name)
-            if info is None or info.transient or name == "id" or value is None:
+            if info is None or info.transient or name == "id":
                 continue
+            if value is None and info.stored in absent:
+                continue  # not stored while None; a StoreNone field is written as null
             out[info.stored] = to_bson(value)
         return out
 

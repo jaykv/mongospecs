@@ -167,15 +167,20 @@ class PydanticCodec(Codec):
 
     def validate_field(self, cls: type, name: str, value: t.Any) -> t.Any:
         model = t.cast("type[BaseModel]", cls)
+        # Runs the model's own field validators for this one field. The instance it is assigned
+        # to is blank: every other field holds its default, not the stored value.
+        blank = model.model_construct()
+        blank.__dict__.pop(name, None)
         try:
-            # Runs the model's own field validators for this one field.
-            blank = model.model_construct()
             return getattr(model.__pydantic_validator__.validate_assignment(blank, name, value), name)
-        except pydantic.ValidationError as exc:
-            raise _error(cls, exc, name) from exc
-        except Exception:
-            # A model-level validator could not run on a partial instance; fall
-            # back to the field's type and constraints alone.
+        except Exception as exc:
+            if isinstance(exc, pydantic.ValidationError) and any(e.get("loc") for e in exc.errors()):
+                raise _error(cls, exc, name) from exc  # the field itself is wrong
+            # A model-level validator rejected, or could not run on, the blank instance. It
+            # compares fields, and the other fields here are defaults, so its verdict says
+            # nothing about the document being updated. The field was validated before it ran.
+            if name in blank.__dict__:
+                return blank.__dict__[name]
             adapter = self._adapters.get((cls, name))
             if adapter is None:
                 adapter = TypeAdapter(self.fields(cls)[name].type, config=_adapter_config(model))

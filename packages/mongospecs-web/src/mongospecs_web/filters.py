@@ -104,6 +104,9 @@ def parse_list_query(
             raise BadRequest(f"{name!r} cannot be used as a filter")
         if op not in allowed:
             raise BadRequest(f"operator {op!r} is not allowed on {name!r}; allowed: {', '.join(allowed)}")
+        if len(values) > 1 and op not in ("in", "nin"):
+            # Only one of them could apply; picking it silently hides the client's mistake.
+            raise BadRequest(f"{key!r} is given more than once")
         filters.append(Filter(name, op, _value(view, name, op, values)))
 
     sort: list[tuple[str, int]] = []
@@ -115,6 +118,8 @@ def parse_list_query(
         name = item.lstrip("+-")
         if name not in view.sortable:
             raise BadRequest(f"{name!r} cannot be used for sorting")
+        if any(name == taken for taken, _ in sort):
+            raise BadRequest(f"{name!r} is given more than once in sort")
         sort.append((name, direction))
 
     size = pagination.default

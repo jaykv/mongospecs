@@ -168,6 +168,8 @@ class Api:
         cached: list[Route] | None = self.__dict__.get("_route_cache")
         count = sum(len(r.operations) for r in self.resources)
         if cached is None or self.__dict__.get("_route_count") != count:
+            for resource in self.resources:
+                resource.check()
             cached = self.routes
             # Literal segments win over parameters: /{id}/publish before /{id}, /search before /{id}.
             cached.sort(key=lambda r: (-r.path.count("/"), r.path.count("{")))
@@ -178,17 +180,8 @@ class Api:
 
     async def run(self, route: Route, request: Request) -> Response:
         """Authenticate and dispatch. Never raises."""
-        try:
-            if len(request.body) > self.max_body:
-                raise PayloadTooLarge(f"The request body may be at most {self.max_body} bytes.")
-            if self.authenticate is not None:
-                principal = self.authenticate(request)
-                request.principal = await principal if inspect.isawaitable(principal) else principal
-        except Exception as exc:
-            response = Response.error(exc)
-            if response.status >= 500:
-                logging.getLogger("mongospecs_web").error("authentication failed unexpectedly", exc_info=exc)
-            return response
+        # The limit comes first: authentication is work too (often a database read), and an
+        # overloaded server should not do it for requests it is about to turn away.
         if self.max_concurrency is not None and self._in_flight >= self.max_concurrency:
             return Response.error(
                 HTTPError(
@@ -200,6 +193,19 @@ class Api:
             )
         self._in_flight += 1
         try:
+            try:
+                if len(request.body) > self.max_body:
+                    raise PayloadTooLarge(f"The request body may be at most {self.max_body} bytes.")
+                if self.authenticate is not None:
+                    principal = self.authenticate(request)
+                    request.principal = await principal if inspect.isawaitable(principal) else principal
+            except Exception as exc:
+                response = Response.error(exc)
+                if response.status >= 500:
+                    logging.getLogger("mongospecs_web").error(
+                        "authentication failed unexpectedly", exc_info=exc
+                    )
+                return response
             response = await route.resource.dispatch(route.operation, request)
         finally:
             self._in_flight -= 1

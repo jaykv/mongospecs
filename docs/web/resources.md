@@ -128,7 +128,8 @@ await registry.close()
 ?include=author              embed allowlisted relations
 ```
 
-Only fields and operators the policy allows are accepted; everything else is a 400.
+Only fields and operators the policy allows are accepted; everything else is a 400. So is a
+filter or sort key given twice (`?name=a&name=b`); `[in]` and `[nin]` may be repeated.
 
 ## Limits and defaults
 
@@ -229,5 +230,12 @@ JSON whatever they are: an ObjectId as its string, dates as ISO 8601, binary as 
 [Tuning for production](../guide/production.md).
 
 `DELETE` honours `If-Match` like `PATCH`, and the row scope is part of the delete's own filter.
+On a model without a `Revision` field there is nothing to compare with, so a request carrying
+`If-Match` gets a 412 instead of an unconditional write (`If-Match: *` passes). `If-None-Match` on
+`GET` accepts a list, weak tags and `*`.
+
+Request bodies are strict JSON: `NaN` and `Infinity` are a 400, and so is a body nested too
+deeply to parse. Guards and hooks must name an operation the resource has; a misspelt key or
+`Put` on a resource without it raises `ValueError` when the `Api` builds its routes.
 `HEAD` and `OPTIONS` are answered by `api.handle` and the pure ASGI plug; the framework plugs leave
 them to the framework.

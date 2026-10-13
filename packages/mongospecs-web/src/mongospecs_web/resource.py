@@ -22,6 +22,7 @@ from mongospecs_web.errors import (
     BadRequest,
     Forbidden,
     NotFound,
+    PreconditionFailed,
     Unprocessable,
     UnsupportedMediaType,
     problem,
@@ -75,6 +76,12 @@ def _pick_dumps() -> t.Callable[[t.Any], bytes]:
 dumps: t.Callable[[t.Any], bytes] = _pick_dumps()
 
 
+def _not_json(literal: str) -> t.NoReturn:
+    # Python's parser reads NaN and Infinity; JSON has neither, and a NaN that got stored
+    # could not be sent back as JSON.
+    raise ValueError(f"{literal} is not a JSON value")
+
+
 @dataclass(slots=True)
 class Request:
     """A framework-neutral HTTP request."""
@@ -97,9 +104,11 @@ class Request:
         if content_type != JSON and not content_type.endswith("+json"):
             raise UnsupportedMediaType("The request body must be application/json.")
         try:
-            return json.loads(self.body)
+            return json.loads(self.body, parse_constant=_not_json)
         except ValueError:
             raise BadRequest("The request body is not valid JSON.") from None
+        except RecursionError:
+            raise BadRequest("The request body is nested too deeply.") from None
 
 
 @dataclass(slots=True)
@@ -335,6 +344,20 @@ class Resource(t.Generic[T]):
 
         return register
 
+    def check(self) -> None:
+        """Raise ``ValueError`` if a guard or hook is registered for an operation this resource
+        does not have: a misspelt key, or ``Put`` on a resource whose ``ops`` leave it out, would
+        otherwise guard nothing without a word. Called when an ``Api`` builds its routes, so
+        custom operations may be declared after the guards that name them."""
+        known = {op.name for op in self.operations} | {op.kind for op in self.operations}
+        for what, keys in (("guards", self._guards), ("before", self._before), ("after", self._after)):
+            unknown = sorted(set(keys) - known)
+            if unknown:
+                raise ValueError(
+                    f"{self.name}: {what} registered for {unknown}, which this resource does not have; "
+                    f"its operations are {sorted(known - {'custom'})}"
+                )
+
     def operation(self, name: str) -> Operation:
         for op in self.operations:
             if op.name == name:
@@ -537,7 +560,7 @@ class Resource(t.Generic[T]):
             etag = self.view.etag(doc)
             if etag:
                 headers["etag"] = etag
-                if ctx.request.headers.get("if-none-match") == etag:
+                if _etag_listed(ctx.request.headers.get("if-none-match"), etag):
                     return Response(304, b"", headers)
             return Response.json({"data": self.view.serialize(doc, set(include))}, 200, headers)
 
@@ -644,13 +667,28 @@ class Resource(t.Generic[T]):
         return f"<Resource {self.name} ops={[op.name for op in self.operations]}>"
 
 
+def _etag_listed(header: str | None, etag: str) -> bool:
+    """Whether ``If-None-Match`` names ``etag``: one of a list, weak or strong, or ``*``."""
+    if header is None:
+        return False
+    for item in header.split(","):
+        item = item.strip()
+        if item == "*" or item.removeprefix("W/") == etag:
+            return True
+    return False
+
+
 def _if_match(header: str | None, has_revision: bool) -> int | None:
     """Parse ``If-Match`` into a revision number. ``*`` and absence mean "no check"."""
-    if header is None or not has_revision:
+    if header is None:
         return None
     value = header.strip()
     if value == "*":
         return None
+    if not has_revision:
+        # There is no ETag to compare with, so the condition cannot hold. Going ahead anyway
+        # would be an unconditional write the client explicitly did not ask for.
+        raise PreconditionFailed("This resource has no revisions, so If-Match cannot be satisfied.")
     if value.startswith("W/"):
         value = value[2:]
     try:

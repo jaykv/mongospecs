@@ -34,7 +34,8 @@ plug.mount(app, api)
 ```
 
 The operations and their schemas are merged into the application's own `/openapi.json` and
-`/docs`, for msgspec and attrs models as well as pydantic ones.
+`/docs`, for msgspec and attrs models as well as pydantic ones. With `Api(openapi=False)` (or
+`plug.mount(app, api, openapi=False)`) the routes are served but stay out of both.
 
 ## Litestar
 

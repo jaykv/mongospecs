@@ -277,6 +277,13 @@ class Manager(t.Generic[T]):
             for hook in meta.hooks(when, event):
                 await hook(ctx, doc)
 
+    def _has_hooks(self, *events: str) -> bool:
+        """Whether a document hook could run for any of ``events`` (bulk paths skip the calls otherwise)."""
+        for plugin in self.plugins:
+            if type(plugin).before is not Plugin.before or type(plugin).after is not Plugin.after:
+                return True
+        return any(self.meta.hooks(when, event) for when in ("before", "after") for event in events)
+
     # -- document-level writes -----------------------------------------------------
 
     async def insert(self, doc: T, *, session: t.Any = None) -> T:
@@ -677,7 +684,9 @@ class Manager(t.Generic[T]):
         """Insert documents in one round trip.
 
         With ``ordered=False`` the server attempts every document; failures are
-        reported in ``BulkResult.errors`` instead of raising.
+        reported in ``BulkResult.errors`` instead of raising. Document hooks for
+        ``insert`` and ``save`` run for every document, as they do for ``insert()``:
+        the ``before`` hooks ahead of the write, the ``after`` hooks for what was written.
         """
         items: list[t.Any] = [
             self.meta.decode(dict(d), stored=False) if isinstance(d, t.Mapping) else d for d in docs
@@ -685,6 +694,10 @@ class Manager(t.Generic[T]):
         if not items:
             return BulkResult([], [])
         ctx = self.ctx("insert", session, many=True)
+        hooks = self._has_hooks("insert", "save")
+        if hooks:
+            for doc in items:
+                await self._hooks("before", ("insert", "save"), ctx, doc)
         for plugin in self.plugins:
             await plugin.before_bulk(ctx, items)
         encoded: list[dict[str, t.Any]] = []
@@ -717,6 +730,9 @@ class Manager(t.Generic[T]):
             inserted.append(doc)
         for plugin in self.plugins:
             await plugin.after_bulk(ctx, inserted)
+        if hooks:
+            for doc in inserted:
+                await self._hooks("after", ("insert", "save"), ctx, doc)
         return BulkResult(inserted, sorted(failed.items()))
 
     async def bulk_write(
@@ -765,6 +781,9 @@ class Manager(t.Generic[T]):
         fail (a duplicate key, a document that no longer exists, a revision that
         moved on), the rest are still written and brought in sync in memory, and
         the error raised afterwards lists the ones that were not in ``.failed``.
+
+        Document hooks run as they do for ``save()``: ``insert`` and ``save`` for new
+        documents, ``save`` for tracked ones; the ``after`` hooks only for what was written.
         """
         from pymongo import InsertOne
         from pymongo import UpdateOne as DriverUpdateOne
@@ -774,10 +793,13 @@ class Manager(t.Generic[T]):
         pending: list[
             tuple[t.Any, str, OpCtx, dict[str, t.Any], tracking.DocState | None, dict[str, t.Any]]
         ] = []
+        hooks = self._has_hooks("insert", "save")
         for doc in docs:
             state = tracking.state_of(doc)
             if state is None:
                 ctx = self.ctx("insert", session, many=True, doc=doc)
+                if hooks:
+                    await self._hooks("before", ("insert", "save"), ctx, doc)
                 enc = self.meta.encode(doc)
                 if enc.get("_id") is None:
                     enc.pop("_id", None)
@@ -787,6 +809,8 @@ class Manager(t.Generic[T]):
                 pending.append((doc, "insert", ctx, enc, None, {}))
                 continue
             ctx = self.ctx("update", session, many=True, doc=doc, snapshot=state.snapshot)
+            if hooks:
+                await self._hooks("before", ("save",), ctx, doc)
             current, update = self._delta(doc, state)
             if not update:
                 continue
@@ -842,6 +866,12 @@ class Manager(t.Generic[T]):
             written += 1
         for plugin in self.plugins:
             await plugin.after_bulk(bulk_ctx, [p[0] for i, p in enumerate(pending) if i not in failed])
+        if hooks:
+            for index, (doc, kind, ctx, *_rest) in enumerate(pending):
+                if index not in failed:
+                    await self._hooks(
+                        "after", ("insert", "save") if kind == "insert" else ("save",), ctx, doc
+                    )
         if error is not None:
             error.failed = [pending[i][0] for i in sorted(failed)]
             raise error

@@ -35,9 +35,14 @@ def _endpoint(api: Api, route: Route) -> t.Callable[..., t.Awaitable[StarletteRe
     return endpoint
 
 
-def router(api: Api) -> APIRouter:
-    """An ``APIRouter`` with one route per operation."""
+def router(api: Api, *, openapi: bool | None = None) -> APIRouter:
+    """An ``APIRouter`` with one route per operation.
+
+    ``openapi`` says whether the operations appear in the application's OpenAPI document;
+    by default that follows ``Api(openapi=...)``.
+    """
     out = APIRouter()
+    documented = api.expose_openapi if openapi is None else openapi
     secured = api.authenticate is not None
     for route in api._routes():
         extra = operation_object(route.resource, route.operation, secured=secured)
@@ -52,16 +57,24 @@ def router(api: Api) -> APIRouter:
             status_code=route.operation.status,
             response_class=StarletteResponse,
             openapi_extra=extra,
+            include_in_schema=documented,
         )
     return out
 
 
-def mount(app: FastAPI, api: Api) -> None:
-    """Add the API to a FastAPI application and merge its schemas into ``app.openapi()``."""
-    app.include_router(router(api))
+def mount(app: FastAPI, api: Api, *, openapi: bool | None = None) -> None:
+    """Add the API to a FastAPI application and merge its schemas into ``app.openapi()``.
+
+    With ``Api(openapi=False)`` (or ``openapi=False`` here) the routes are served but left out
+    of the application's ``/openapi.json`` and ``/docs``.
+    """
+    documented = api.expose_openapi if openapi is None else openapi
+    app.include_router(router(api, openapi=documented))
+    if not documented:
+        return
     original = app.openapi
 
-    def openapi() -> dict[str, t.Any]:
+    def merged() -> dict[str, t.Any]:
         if app.openapi_schema is not None:
             return app.openapi_schema
         schema = original()
@@ -71,12 +84,12 @@ def mount(app: FastAPI, api: Api) -> None:
         components.setdefault("responses", {}).update(ours["responses"])
         for route in api._routes():
             operation = schema["paths"][route.path][route.method.lower()]
-            documented = operation_object(
+            described = operation_object(
                 route.resource, route.operation, secured=api.authenticate is not None
             )
             # FastAPI adds its own default responses; ours are the truth.
-            operation["responses"] = documented["responses"]
+            operation["responses"] = described["responses"]
         app.openapi_schema = schema
         return schema
 
-    app.openapi = openapi  # type: ignore[method-assign]
+    app.openapi = merged  # type: ignore[method-assign]

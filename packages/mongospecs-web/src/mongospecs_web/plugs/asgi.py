@@ -66,11 +66,14 @@ class AsgiApp:
             await _send(send, Response(200, self._openapi, {}))
             return
         headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+        gone = False
 
         async def chunks() -> t.AsyncIterator[bytes]:
+            nonlocal gone
             while True:
                 message = await receive()
                 if message["type"] == "http.disconnect":
+                    gone = True
                     return
                 yield message.get("body", b"")
                 if not message.get("more_body"):
@@ -81,6 +84,8 @@ class AsgiApp:
         except HTTPError as exc:
             await _send(send, Response.error(exc))
             return
+        if gone:
+            return  # the client left before the request was complete: there is nothing to run
         query = parse_qsl(scope.get("query_string", b"").decode("latin-1"), keep_blank_values=True)
         response = await self.api.handle(method, path, query=query, headers=headers, body=body, raw=scope)
         await _send(send, response)

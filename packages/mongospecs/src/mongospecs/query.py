@@ -592,7 +592,6 @@ class Query(t.Generic[T]):
             raise QueryError("page size must be >= 1")
         if number is not None and after is not None:
             raise QueryError("use either number (offset pagination) or after (cursor pagination)")
-        count_task: t.Awaitable[int] | None = self._clone(skip=0, limit=0, sort=()).count() if total else None
 
         if number is not None:
             if number < 1:
@@ -615,6 +614,8 @@ class Query(t.Generic[T]):
             # default where the stored document has no key, which sorts elsewhere.
             query._keys = {}
         total_count: int | None
+        # Created only now: everything above can raise, and a coroutine nobody awaits is a warning.
+        count_task: t.Awaitable[int] | None = self._clone(skip=0, limit=0, sort=()).count() if total else None
         if count_task is not None and self._session is None:
             items, total_count = await asyncio.gather(query.all(), count_task)
         else:

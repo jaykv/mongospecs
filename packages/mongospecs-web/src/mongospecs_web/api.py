@@ -53,6 +53,7 @@ class Api:
         authenticate: Authenticate | None = None,
         max_body: int = 1_048_576,
         openapi: bool = True,
+        max_concurrency: int | None = None,
     ) -> None:
         self.resources: tuple[Resource[t.Any], ...] = resources
         self.prefix = "/" + prefix.strip("/") if prefix.strip("/") else ""
@@ -60,6 +61,11 @@ class Api:
         self.version = version
         self.authenticate = authenticate
         self.max_body = max_body
+        self.max_concurrency = max_concurrency
+        """At most this many requests are worked on at once; one more is answered at once with
+        503 and ``Retry-After`` instead of waiting. Without a limit, overload turns into a
+        growing queue for database connections, and every request gets slower together."""
+        self._in_flight = 0
         self.expose_openapi = openapi
         """Serve ``<prefix>/openapi.json``. Turn it off to keep the API description private;
         ``api.openapi()`` still builds it for you to serve behind your own authentication."""
@@ -183,7 +189,20 @@ class Api:
             if response.status >= 500:
                 logging.getLogger("mongospecs_web").error("authentication failed unexpectedly", exc_info=exc)
             return response
-        response = await route.resource.dispatch(route.operation, request)
+        if self.max_concurrency is not None and self._in_flight >= self.max_concurrency:
+            return Response.error(
+                HTTPError(
+                    "The server is handling as many requests as it accepts. Try again shortly.",
+                    status=503,
+                    title="Service Unavailable",
+                    headers={"retry-after": "1"},
+                )
+            )
+        self._in_flight += 1
+        try:
+            response = await route.resource.dispatch(route.operation, request)
+        finally:
+            self._in_flight -= 1
         location = response.headers.get("location")
         if location and not location.startswith(("/", "http://", "https://")):
             # A resource names what it created by id; the URL of that thing depends on where

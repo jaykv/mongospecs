@@ -121,6 +121,13 @@ def problem(exc: BaseException) -> HTTPError:
         return BadRequest(str(exc))
     if isinstance(exc, me.OperationTimeout):
         return HTTPError("The database did not answer in time.", status=504, title="Gateway Timeout")
+    if isinstance(exc, me.PoolTimeout):
+        return HTTPError(
+            "The server is busy: no database connection became free in time.",
+            status=503,
+            title="Service Unavailable",
+            headers={"retry-after": "1"},
+        )
     if isinstance(exc, me.ConnectionFailed):
         return HTTPError("The database is unavailable.", status=503, title="Service Unavailable")
     return HTTPError()

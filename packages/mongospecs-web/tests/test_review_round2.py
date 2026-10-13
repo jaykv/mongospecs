@@ -157,3 +157,95 @@ async def test_head_reports_the_length_of_the_get_body():
     assert head.status_code == 200 and head.content == b""
     assert head.headers["content-length"] == str(len(get.content)) != "0"
     assert head.headers["content-type"] == get.headers["content-type"]
+
+
+# -- routing by resource, and refusing work beyond a limit ----------------------------------------
+
+
+async def test_routes_are_found_by_resource_and_keep_their_precedence():
+    from mongospecs_web import Create, Patch
+
+    base = contract_api("msgspec")
+    model, backend = base.resources[0].model, base.resources[0].backend
+    plain = Resource(model, name="things", ops=[List, Get, Create, Patch, Delete], backend=backend)
+    nested = Resource(model, name="shop/things", ops=[List, Get], backend=backend)
+    api = Api(
+        plain,
+        nested,
+        *[Resource(model, name=f"r{i}", ops=[List, Get], backend=backend) for i in range(40)],
+        prefix="/api",
+    )
+
+    @plain.op("search", method="GET", path="/search")
+    async def search(ctx):
+        return {"found": "search"}
+
+    def target(method, path):
+        route, params = api.match(method, path)
+        return route.resource.name, route.operation.name, params
+
+    assert target("GET", "/api/things") == ("things", "list", {})
+    assert target("GET", "/api/things/") == ("things", "list", {})
+    assert target("GET", "/api/things/search") == ("things", "search", {})  # a literal wins over /{id}
+    assert target("GET", "/api/things/abc") == ("things", "get", {"id": "abc"})
+    assert target("GET", "/api/shop/things/abc") == ("shop/things", "get", {"id": "abc"})
+    assert target("GET", "/api/r39/x") == ("r39", "get", {"id": "x"})
+    for method, path, status in (
+        ("PUT", "/api/things/abc", 405),
+        ("GET", "/api/nothing", 404),
+        ("GET", "/other/things", 404),
+        ("GET", "/api", 404),
+        ("GET", "/api/things/a/b/c", 404),
+    ):
+        assert (await api.handle(method, path)).status == status, (method, path)
+    assert (await api.handle("PUT", "/api/things/abc")).headers["allow"] == "DELETE, GET, PATCH"
+
+    # an operation added after requests have been served is routable
+    @plain.op("archive", method="POST", path="/{id}/archive")
+    async def archive(ctx):
+        return {"archived": ctx.id}
+
+    assert target("POST", "/api/things/abc/archive") == ("things", "archive", {"id": "abc"})
+    assert (await api.handle("OPTIONS", "/api/things/abc/archive")).headers["allow"] == "OPTIONS, POST"
+
+
+async def test_requests_beyond_max_concurrency_are_refused_at_once():
+    import asyncio
+
+    base = contract_api("msgspec")
+    model, backend = base.resources[0].model, base.resources[0].backend
+    resource = Resource(model, name="things", ops=[List], backend=backend)
+    release, entered = asyncio.Event(), asyncio.Event()
+
+    @resource.op("slow", method="GET", path="/slow")
+    async def slow(ctx):
+        entered.set()
+        await release.wait()
+        return {"ok": True}
+
+    api = Api(resource, prefix="/api", max_concurrency=2)
+    held = [asyncio.create_task(api.handle("GET", "/api/things/slow")) for _ in range(2)]
+    await entered.wait()
+    await asyncio.sleep(0)
+    refused = await api.handle("GET", "/api/things")
+    assert refused.status == 503 and refused.headers["retry-after"] == "1"
+    release.set()
+    assert [r.status for r in await asyncio.gather(*held)] == [200, 200]
+    assert (await api.handle("GET", "/api/things")).status == 200  # capacity is back
+    # a failing handler gives its slot back too
+    crash = Resource(model, name="boom", ops=[], backend=backend)
+
+    @crash.op("fail", method="GET", path="")
+    async def fail(ctx):
+        raise RuntimeError("boom")
+
+    small = Api(crash, prefix="/api", max_concurrency=1)
+    assert [(await small.handle("GET", "/api/boom")).status for _ in range(3)] == [500, 500, 500]
+
+
+def test_a_pool_timeout_is_a_503_with_retry_after():
+    from mongospecs import PoolTimeout
+    from mongospecs_web.errors import problem
+
+    error = problem(PoolTimeout("no connection"))
+    assert error.status == 503 and error.headers["retry-after"] == "1"

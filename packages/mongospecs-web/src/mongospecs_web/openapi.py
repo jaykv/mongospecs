@@ -35,6 +35,7 @@ _ERRORS: dict[str, tuple[str, ...]] = {
     "get": ("404",),
     "create": ("409", "422"),
     "patch": ("404", "409", "412", "422"),
+    "put": ("404", "409", "412", "422"),
     "delete": ("404",),
     "custom": ("404", "422"),
 }
@@ -65,12 +66,15 @@ def _rewrite_refs(node: t.Any, prefix: str) -> t.Any:
 
 
 def component_schemas(resource: Resource[t.Any]) -> dict[str, t.Any]:
-    """Read/Create/Patch schemas of a resource, plus the nested definitions they refer to."""
+    """Read/Create/Patch schemas of a resource (and Put, when it has that operation), plus
+    the nested definitions they refer to."""
     schemas: dict[str, t.Any] = {}
     prefix = resource.model.__name__ + "_"
-    kinds: tuple[t.Literal["read", "create", "patch"], ...] = ("read", "create", "patch")
+    kinds: list[t.Literal["read", "create", "patch", "put"]] = ["read", "create", "patch"]
+    if any(op.kind == "put" for op in resource.operations):
+        kinds.append("put")
     for kind in kinds:
-        schema = copy.deepcopy(resource.view.schema(kind))
+        schema = copy.deepcopy(resource.view.schema(kind, merge=resource.merge_patch))
         for name, definition in schema.pop("$defs", {}).items():
             schemas[prefix + name] = _rewrite_refs(definition, prefix)
         schemas[resource.schema_name(kind)] = _rewrite_refs(schema, prefix)
@@ -89,7 +93,7 @@ def operation_object(resource: Resource[t.Any], op: Operation, *, secured: bool)
         for name in op.path_parameters
     ]
     parameters.extend(op.query_parameters)
-    if op.kind == "patch" and resource.view.revision:
+    if op.kind in ("patch", "put") and resource.view.revision:
         parameters.append(
             {
                 "name": "If-Match",

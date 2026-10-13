@@ -10,36 +10,76 @@ from __future__ import annotations
 
 import inspect
 import json
+import logging
 import typing as t
 from dataclasses import dataclass, field
 
 from mongospecs.expr import Expr
+from mongospecs.jsonable import jsonable
 from mongospecs_web.backend import MongoBackend, ResourceBackend
 from mongospecs_web.errors import (
     PROBLEM_JSON,
     BadRequest,
     Forbidden,
     NotFound,
+    PreconditionFailed,
     Unprocessable,
     UnsupportedMediaType,
     problem,
 )
 from mongospecs_web.filters import Cursor, Pagination, parse_includes, parse_list_query
-from mongospecs_web.policy import View, jsonable, view_of
+from mongospecs_web.policy import View, view_of
 
-__all__ = ["Create", "Ctx", "Delete", "Get", "List", "Operation", "Patch", "Request", "Resource", "Response"]
+__all__ = [
+    "Create",
+    "Ctx",
+    "Delete",
+    "Get",
+    "List",
+    "Operation",
+    "Patch",
+    "Put",
+    "Request",
+    "Resource",
+    "Response",
+]
 
 T = t.TypeVar("T")
 F = t.TypeVar("F", bound=t.Callable[..., t.Any])
+
+log = logging.getLogger("mongospecs_web")
 
 # Built-in operation kinds. Used as keys for ``ops=``, ``guards=`` and hooks.
 List = "list"
 Get = "get"
 Create = "create"
 Patch = "patch"
+Put = "put"
 Delete = "delete"
 
 JSON = "application/json"
+
+
+def _stdlib_dumps(data: t.Any) -> bytes:
+    return json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode()
+
+
+def _pick_dumps() -> t.Callable[[t.Any], bytes]:
+    """Use msgspec's JSON encoder when it is installed (it usually is); the standard library otherwise."""
+    try:
+        import msgspec
+    except ImportError:
+        return _stdlib_dumps
+    return msgspec.json.Encoder().encode
+
+
+dumps: t.Callable[[t.Any], bytes] = _pick_dumps()
+
+
+def _not_json(literal: str) -> t.NoReturn:
+    # Python's parser reads NaN and Infinity; JSON has neither, and a NaN that got stored
+    # could not be sent back as JSON.
+    raise ValueError(f"{literal} is not a JSON value")
 
 
 @dataclass(slots=True)
@@ -64,9 +104,11 @@ class Request:
         if content_type != JSON and not content_type.endswith("+json"):
             raise UnsupportedMediaType("The request body must be application/json.")
         try:
-            return json.loads(self.body)
+            return json.loads(self.body, parse_constant=_not_json)
         except ValueError:
             raise BadRequest("The request body is not valid JSON.") from None
+        except RecursionError:
+            raise BadRequest("The request body is nested too deeply.") from None
 
 
 @dataclass(slots=True)
@@ -80,8 +122,7 @@ class Response:
 
     @classmethod
     def json(cls, data: t.Any, status: int = 200, headers: dict[str, str] | None = None) -> Response:
-        body = json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode()
-        return cls(status, body, dict(headers or {}), JSON)
+        return cls(status, dumps(data), dict(headers or {}), JSON)
 
     @classmethod
     def error(cls, exc: BaseException) -> Response:
@@ -191,12 +232,26 @@ class Resource(t.Generic[T]):
         include: t.Sequence[str] = (),
         page: Pagination | None = None,
         tags: t.Sequence[str] | None = None,
+        server_fields: t.Callable[[Ctx[T]], t.Any] | None = None,
+        explicit_writes: bool = False,
+        merge_patch: bool = True,
     ) -> None:
         self.model = model
-        self.view: View = view_of(model)
+        self.view: View = view_of(model, explicit_writes=explicit_writes)
+        """With ``explicit_writes=True`` a field is writable only if its ``Policy`` says so
+        (``Policy(insert=True)``, ``Policy(update=True)``); by default ordinary fields are
+        writable unless marked otherwise."""
+        self.merge_patch = merge_patch
+        """``PATCH`` merges an object given for an embedded model into the stored one. With
+        ``merge_patch=False`` it replaces the stored object: the embedded model is validated
+        whole, and every value in it that the client cannot send goes back to its default."""
         self.name = name or self.view.meta.collection
         self.backend: ResourceBackend[T] = backend if backend is not None else MongoBackend(model)
         self.scope_fn = scope
+        self.server_fields = server_fields
+        """``server_fields(ctx) -> dict`` of values the server sets on create (the author of a
+        review, a tenant id). They are not subject to the field policy, so the fields can stay
+        closed to clients with ``Policy(insert=False)``."""
         self.includes: tuple[str, ...] = tuple(include)
         for path in self.includes:
             head = path.partition(".")[0]
@@ -204,6 +259,9 @@ class Resource(t.Generic[T]):
                 raise ValueError(f"{model.__name__}.{head} is not a readable relation and cannot be included")
         self.page: Pagination = page or Cursor()
         self.tags: tuple[str, ...] = tuple(tags) if tags is not None else (self.name,)
+        self.raw_reads = True
+        """Serve ``GET`` straight from stored documents where that is certain to give the same
+        response as going through the model. Set to ``False`` to always build models."""
         self._all_guards: tuple[Guard, ...] = ()
         self._guards: dict[str, tuple[Guard, ...]] = {}
         if isinstance(guards, t.Mapping):
@@ -221,12 +279,13 @@ class Resource(t.Generic[T]):
             Get: self._get_op,
             Create: self._create_op,
             Patch: self._patch_op,
+            Put: self._put_op,
             Delete: self._delete_op,
         }
         for kind in ops:
             if kind not in builders:
                 raise ValueError(
-                    f"unknown operation {kind!r}; use List, Get, Create, Patch, Delete or @resource.op"
+                    f"unknown operation {kind!r}; use List, Get, Create, Patch, Put, Delete or @resource.op"
                 )
             self.operations.append(builders[kind]())
 
@@ -285,6 +344,20 @@ class Resource(t.Generic[T]):
 
         return register
 
+    def check(self) -> None:
+        """Raise ``ValueError`` if a guard or hook is registered for an operation this resource
+        does not have: a misspelt key, or ``Put`` on a resource whose ``ops`` leave it out, would
+        otherwise guard nothing without a word. Called when an ``Api`` builds its routes, so
+        custom operations may be declared after the guards that name them."""
+        known = {op.name for op in self.operations} | {op.kind for op in self.operations}
+        for what, keys in (("guards", self._guards), ("before", self._before), ("after", self._after)):
+            unknown = sorted(set(keys) - known)
+            if unknown:
+                raise ValueError(
+                    f"{self.name}: {what} registered for {unknown}, which this resource does not have; "
+                    f"its operations are {sorted(known - {'custom'})}"
+                )
+
     def operation(self, name: str) -> Operation:
         for op in self.operations:
             if op.name == name:
@@ -305,12 +378,16 @@ class Resource(t.Generic[T]):
         """Run one operation. Never raises: every error becomes a problem+json response."""
         ctx: Ctx[T] = Ctx(self, op, request)
         try:
+            ran: set[int] = set()
             for guard in (
                 *self._all_guards,
                 *self._guards.get(op.kind, ()),
-                *self._guards.get(op.name, ()),
+                *self._guards.get(op.name, ()),  # the same key as the kind for built-in operations
                 *op.guards,
             ):
+                if id(guard) in ran:
+                    continue  # one guard is one check, however many places list it
+                ran.add(id(guard))
                 if not await _maybe(guard(ctx)):
                     raise Forbidden("You are not allowed to do this.")
             for hook in self._before.get(op.name, ()):
@@ -320,7 +397,11 @@ class Resource(t.Generic[T]):
                 await _maybe(hook(ctx, ctx.state.get("result", result)))
             return self._respond(op, result, ctx)
         except Exception as exc:
-            return Response.error(exc)
+            response = Response.error(exc)
+            if response.status >= 500:
+                # The client gets a bare 500; the cause belongs in the server log.
+                log.error("%s %s failed", self.name, op.name, exc_info=exc)
+            return response
 
     def _respond(self, op: Operation, result: t.Any, ctx: Ctx[T]) -> Response:
         if isinstance(result, Response):
@@ -343,10 +424,28 @@ class Resource(t.Generic[T]):
     def schema_name(self, kind: str) -> str:
         return f"{self.model.__name__}{kind.capitalize()}"
 
+    def _raw_fields(self, kind: str, include: t.Collection[str]) -> tuple[str, ...] | None:
+        """The fields to read as a plain stored document, or ``None`` to read a model.
+
+        Reading without a model is possible when the response is all the document is used
+        for: the view can serialise it directly, no relation is embedded, and no ``after``
+        hook is waiting for a model.
+        """
+        plan = self.view.fast
+        if plan is None or include or self._after.get(kind) or not self.raw_reads:
+            return None
+        if not getattr(self.backend, "supports_raw", False):
+            return None
+        return plan.select
+
     def _list_op(self) -> Operation:
         async def handler(ctx: Ctx[T]) -> Response:
             query = parse_list_query(ctx.request.query, self.view, self.page, self.includes)
-            page = await self.backend.list(query, scope=await ctx.scope())
+            fields = self._raw_fields(List, query.include)
+            if fields is not None:
+                page = await t.cast(t.Any, self.backend).list(query, scope=await ctx.scope(), fields=fields)
+            else:
+                page = await self.backend.list(query, scope=await ctx.scope())
             ctx.state["result"] = page
             meta: dict[str, t.Any] = {"size": page.size, "has_next": page.has_next}
             if page.number is not None:
@@ -449,7 +548,11 @@ class Resource(t.Generic[T]):
     def _get_op(self) -> Operation:
         async def handler(ctx: Ctx[T]) -> Response:
             include = parse_includes(ctx.request.query, self.includes)
-            doc = await self.backend.get(ctx.id, scope=await ctx.scope(), include=include)
+            fields = self._raw_fields(Get, include)
+            if fields is not None:
+                doc = await t.cast(t.Any, self.backend).get(ctx.id, scope=await ctx.scope(), fields=fields)
+            else:
+                doc = await self.backend.get(ctx.id, scope=await ctx.scope(), include=include, read_only=True)
             if doc is None:
                 raise NotFound("The resource does not exist.")
             ctx.state["result"] = doc
@@ -457,7 +560,7 @@ class Resource(t.Generic[T]):
             etag = self.view.etag(doc)
             if etag:
                 headers["etag"] = etag
-                if ctx.request.headers.get("if-none-match") == etag:
+                if _etag_listed(ctx.request.headers.get("if-none-match"), etag):
                     return Response(304, b"", headers)
             return Response.json({"data": self.view.serialize(doc, set(include))}, 200, headers)
 
@@ -471,8 +574,10 @@ class Resource(t.Generic[T]):
             body = ctx.body()
             if body is None:
                 raise Unprocessable("A JSON request body is required.")
-            data = self.view.check_input(body, self.view.insertable, "create")
-            doc = await self.backend.create(dict(data))
+            data = dict(self.view.check_input(body, self.view.insertable, "create"))
+            if self.server_fields is not None:
+                data.update(await _maybe(self.server_fields(ctx)))
+            doc = await self.backend.create(data)
             ctx.state["result"] = doc
             headers = {"location": str(jsonable(getattr(doc, "id", "")))}
             etag = self.view.etag(doc)
@@ -498,14 +603,7 @@ class Resource(t.Generic[T]):
             if body is None:
                 raise Unprocessable("A JSON request body is required.")
             data = self.view.check_input(body, self.view.updatable, "update")
-            if_rev = _if_match(ctx.request.headers.get("if-match"), self.view.revision is not None)
-            doc = await self.backend.patch(ctx.id, dict(data), scope=await ctx.scope(), if_rev=if_rev)
-            ctx.state["result"] = doc
-            headers: dict[str, str] = {}
-            etag = self.view.etag(doc)
-            if etag:
-                headers["etag"] = etag
-            return Response.json({"data": self.view.serialize(doc)}, 200, headers)
+            return await self._write(ctx, self.view.plan_patch(data, merge=self.merge_patch))
 
         return Operation(
             Patch,
@@ -519,9 +617,49 @@ class Resource(t.Generic[T]):
             self._one(),
         )
 
+    def _put_op(self) -> Operation:
+        async def handler(ctx: Ctx[T]) -> Response:
+            body = ctx.body()
+            if body is None:
+                raise Unprocessable("A JSON request body is required.")
+            data = self.view.check_input(body, self.view.updatable, "update")
+            return await self._write(ctx, self.view.plan_put(data))
+
+        return Operation(
+            Put,
+            "PUT",
+            "/{id}",
+            handler,
+            Put,
+            f"Replace one of {self.name}",
+            200,
+            self._ref("put"),
+            self._one(),
+        )
+
+    async def _write(self, ctx: Ctx[T], plan: t.Any) -> Response:
+        """Apply a planned PATCH or PUT in one atomic update and return the document."""
+        if_rev = _if_match(ctx.request.headers.get("if-match"), self.view.revision is not None)
+        if plan.nested:
+            # Writes inside an embedded object, leaving the rest of it as stored.
+            if not getattr(self.backend, "supports_merge", False):
+                raise Unprocessable("This resource cannot write part of an embedded object.")
+            doc = await t.cast(t.Any, self.backend).patch(
+                ctx.id, plan.fields, scope=await ctx.scope(), if_rev=if_rev, merge=plan
+            )
+        else:
+            doc = await self.backend.patch(ctx.id, plan.fields, scope=await ctx.scope(), if_rev=if_rev)
+        ctx.state["result"] = doc
+        headers: dict[str, str] = {}
+        etag = self.view.etag(doc)
+        if etag:
+            headers["etag"] = etag
+        return Response.json({"data": self.view.serialize(doc)}, 200, headers)
+
     def _delete_op(self) -> Operation:
         async def handler(ctx: Ctx[T]) -> None:
-            await self.backend.delete(ctx.id, scope=await ctx.scope())
+            if_rev = _if_match(ctx.request.headers.get("if-match"), self.view.revision is not None)
+            await self.backend.delete(ctx.id, scope=await ctx.scope(), if_rev=if_rev)
 
         return Operation(Delete, "DELETE", "/{id}", handler, Delete, f"Delete one of {self.name}", 204)
 
@@ -529,13 +667,28 @@ class Resource(t.Generic[T]):
         return f"<Resource {self.name} ops={[op.name for op in self.operations]}>"
 
 
+def _etag_listed(header: str | None, etag: str) -> bool:
+    """Whether ``If-None-Match`` names ``etag``: one of a list, weak or strong, or ``*``."""
+    if header is None:
+        return False
+    for item in header.split(","):
+        item = item.strip()
+        if item == "*" or item.removeprefix("W/") == etag:
+            return True
+    return False
+
+
 def _if_match(header: str | None, has_revision: bool) -> int | None:
     """Parse ``If-Match`` into a revision number. ``*`` and absence mean "no check"."""
-    if header is None or not has_revision:
+    if header is None:
         return None
     value = header.strip()
     if value == "*":
         return None
+    if not has_revision:
+        # There is no ETag to compare with, so the condition cannot hold. Going ahead anyway
+        # would be an unconditional write the client explicitly did not ask for.
+        raise PreconditionFailed("This resource has no revisions, so If-Match cannot be satisfied.")
     if value.startswith("W/"):
         value = value[2:]
     try:

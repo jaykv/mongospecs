@@ -18,7 +18,17 @@ import bson
 from bson.raw_bson import RawBSONDocument
 
 from mongospecs.errors import ConfigurationError, ValidationError
-from mongospecs.markers import DEFAULT_POLICY, Alias, Backref, Marker, Policy, To
+from mongospecs.markers import (
+    DEFAULT_POLICY,
+    Alias,
+    Backref,
+    Marker,
+    OmitNone,
+    Policy,
+    SpecConfig,
+    StoreNone,
+    To,
+)
 from mongospecs.refs import Ref, id_of
 
 __all__ = ["Codec", "FieldInfo", "RefInfo", "codec_for", "to_bson"]
@@ -242,7 +252,7 @@ class Codec(abc.ABC):
     def raw_fields(self, cls: type) -> list[RawField]: ...
 
     @abc.abstractmethod
-    def _decode(self, cls: type, doc: dict[str, t.Any], trusted: bool) -> t.Any: ...
+    def _decode(self, cls: type, doc: dict[str, t.Any], lax: bool) -> t.Any: ...
 
     @abc.abstractmethod
     def _encode(self, obj: t.Any) -> dict[str, t.Any]:
@@ -254,6 +264,10 @@ class Codec(abc.ABC):
 
     @abc.abstractmethod
     def _json_schema(self, cls: type) -> dict[str, t.Any]: ...
+
+    @abc.abstractmethod
+    def defaults(self, cls: type) -> dict[str, t.Any]:
+        """Default values by attribute name, for fields that have one (factories are called)."""
 
     # -- shared ------------------------------------------------------------
 
@@ -293,8 +307,13 @@ class Codec(abc.ABC):
             cache[cls] = hit
         return hit
 
-    def decode(self, cls: type, doc: t.Any, *, trusted: bool = False) -> t.Any:
-        """Build a model from a MongoDB document (a mapping or raw BSON bytes)."""
+    def decode(self, cls: type, doc: t.Any, *, lax: bool = False) -> t.Any:
+        """Build a model from a MongoDB document (a mapping or raw BSON bytes).
+
+        ``lax`` is for documents read back from the database: it tolerates the
+        representations other writers produce (an integer stored as a double,
+        for instance) where the backend would otherwise be strict.
+        """
         if isinstance(doc, bytes | bytearray | memoryview):
             doc = bson.decode(bytes(doc))
         elif isinstance(doc, RawBSONDocument):
@@ -302,7 +321,7 @@ class Codec(abc.ABC):
         to_native, _ = self._renames(cls)
         if to_native:
             doc = {to_native.get(k, k): v for k, v in doc.items()}
-        return self._decode(cls, doc, trusted)
+        return self._decode(cls, doc, lax)
 
     def encode(self, obj: t.Any) -> dict[str, t.Any]:
         """Encode a model to a BSON-ready dict keyed by stored names."""
@@ -311,12 +330,45 @@ class Codec(abc.ABC):
         _, to_stored = self._renames(cls)
         if to_stored:
             doc = {to_stored.get(k, k): v for k, v in doc.items()}
+        for key in self.absent_when_none(cls):
+            if key in doc and doc[key] is None:
+                del doc[key]
         for f in self._special(cls):
             if f.transient:
                 doc.pop(f.stored, None)
             elif f.ref is not None and f.stored in doc:
                 doc[f.stored] = ref_ids(doc[f.stored], f.ref.shape)
         return doc
+
+    def absent_when_none(self, cls: type) -> frozenset[str]:
+        """Stored keys of the fields whose default is ``None``.
+
+        ``StoreNone`` on a field, or ``SpecConfig(none="store")`` on its model, takes a
+        field out of this set; ``OmitNone`` puts it back.
+
+        For these, ``None`` means "no value" and the key is left out of the stored
+        document instead of being written as ``null``. A document without the key
+        decodes back to ``None``, so nothing is lost, and sparse and unique indexes
+        behave as expected: MongoDB indexes an explicit ``null``, so two documents
+        "without" a value would otherwise collide on a unique sparse index.
+        """
+        cache: dict[type, frozenset[str]] = self.__dict__.setdefault("_abs", {})
+        hit = cache.get(cls)
+        if hit is None:
+            defaults = self.defaults(cls)
+            store = _none_mode(cls) == "store"
+            hit = frozenset(
+                f.stored
+                for f in self.fields(cls).values()
+                if f.stored != "_id"
+                and not f.transient
+                and f.name in defaults
+                and defaults[f.name] is None
+                and not f.has(StoreNone)
+                and (not store or f.has(OmitNone))
+            )
+            cache[cls] = hit
+        return hit
 
     def _special(self, cls: type) -> tuple[FieldInfo, ...]:
         cache: dict[type, tuple[FieldInfo, ...]] = self.__dict__.setdefault("_sp", {})
@@ -328,6 +380,18 @@ class Codec(abc.ABC):
 
     def encode_value(self, value: t.Any) -> t.Any:
         return to_bson(value)
+
+    def to_json(self, obj: t.Any) -> dict[str, t.Any]:
+        """The model as JSON types, keyed by attribute names; references appear as ids.
+
+        Backends override this with their native serialiser, which is far faster
+        than encoding to BSON types and converting those.
+        """
+        from mongospecs.jsonable import jsonable
+
+        cls = type(obj)
+        names = {f.stored: f.name for f in self.fields(cls).values()}
+        return {names.get(k, k): jsonable(v) for k, v in self.encode(obj).items()}
 
     def json_schema(self, cls: type) -> dict[str, t.Any]:
         """JSON Schema for the model, keyed by attribute names, root inlined, ``$defs`` kept."""
@@ -351,6 +415,21 @@ class Codec(abc.ABC):
         self._fields.clear()
         self.__dict__.pop("_rn", None)
         self.__dict__.pop("_sp", None)
+        self.__dict__.pop("_abs", None)
+        self.__dict__.pop("_eo", None)
+        self.__dict__.pop("_ut", None)
+
+
+def _none_mode(cls: type) -> str:
+    """``"omit"`` or ``"store"`` for a model class: from its SpecConfig, own or inherited."""
+    from mongospecs.model import Document
+
+    if isinstance(cls, type) and issubclass(cls, Document):
+        from mongospecs.meta import resolve_config
+
+        return resolve_config(cls).none
+    config = getattr(cls, "__spec__", None)  # an embedded model may declare one
+    return config.none if isinstance(config, SpecConfig) else "omit"
 
 
 def field_error(cls: type, name: str | None, message: str) -> ValidationError:

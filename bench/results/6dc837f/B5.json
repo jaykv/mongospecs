@@ -1,0 +1,80 @@
+{
+  "meta": {
+    "git_sha": "6dc837f",
+    "git_dirty": false,
+    "timestamp": "2026-10-13T04:45:53+00:00",
+    "topology": "rs",
+    "quick": false,
+    "mongodb": "8.0.32",
+    "python": "3.13.5",
+    "free_threaded": false,
+    "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "cpus": 8,
+    "versions": {
+      "mongospecs": "0.2.0",
+      "pymongo": "4.18.3",
+      "msgspec": "0.22.0",
+      "pydantic": "2.14.1"
+    }
+  },
+  "workload": "B5",
+  "title": "Pagination",
+  "question": "How do offset and cursor pagination compare at depth, and should a total come from $facet or a count?",
+  "rows": [
+    {
+      "page": "1, index on (n) only",
+      "skip": 0,
+      "offset_ms": "",
+      "cursor_ms": 28.781,
+      "offset_vs_cursor": ""
+    },
+    {
+      "page": 1,
+      "skip": 0,
+      "offset_ms": 0.575,
+      "cursor_ms": 0.581,
+      "offset_vs_cursor": 0.99
+    },
+    {
+      "page": 100,
+      "skip": 1980,
+      "offset_ms": 1.199,
+      "cursor_ms": 0.649,
+      "offset_vs_cursor": 1.85
+    },
+    {
+      "page": 1250,
+      "skip": 24980,
+      "offset_ms": 7.055,
+      "cursor_ms": 0.663,
+      "offset_vs_cursor": 10.64
+    },
+    {
+      "page": 2499,
+      "skip": 49960,
+      "offset_ms": 12.623,
+      "cursor_ms": 0.669,
+      "offset_vs_cursor": 18.86
+    },
+    {
+      "page": "total: concurrent count",
+      "skip": 0,
+      "offset_ms": 6.025,
+      "cursor_ms": "",
+      "offset_vs_cursor": ""
+    },
+    {
+      "page": "total: $facet (raw driver)",
+      "skip": 0,
+      "offset_ms": 28.463,
+      "cursor_ms": "",
+      "offset_vs_cursor": ""
+    }
+  ],
+  "notes": [
+    "Collection of 50000 documents, page size 20; index on (n, _id) unless stated.",
+    "$facet returns the page and the total as one document, so the page is bound by the 16MB limit."
+  ],
+  "conclusion": ""
+}

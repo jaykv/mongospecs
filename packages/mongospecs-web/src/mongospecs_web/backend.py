@@ -9,12 +9,24 @@ from __future__ import annotations
 import typing as t
 from dataclasses import dataclass, field
 
-from mongospecs import DocumentNotFound, Page, Q, QueryError, meta_of
+from mongospecs import DocumentNotFound, Page, Q, QueryError, Revision, StaleDocumentError, meta_of
 from mongospecs.expr import Condition, Expr, Field
 
 __all__ = ["OPERATORS", "Filter", "ListQuery", "MongoBackend", "ResourceBackend"]
 
 T = t.TypeVar("T")
+
+_PATH_NOT_VIABLE = 28
+"""Server error for a dotted path that runs through a null or a non-object."""
+
+
+def _dig(doc: t.Any, path: str) -> t.Any:
+    for part in path.split("."):
+        if not isinstance(doc, dict):
+            return None
+        doc = doc.get(part)
+    return doc
+
 
 OPERATORS: dict[str, str] = {
     "eq": "$eq",
@@ -61,7 +73,11 @@ class ResourceBackend(t.Protocol[T]):
 
     model: type[T]
 
-    async def get(self, id: t.Any, *, scope: t.Any, include: t.Sequence[str] = ()) -> T | None: ...
+    async def get(
+        self, id: t.Any, *, scope: t.Any, include: t.Sequence[str] = (), read_only: bool = False
+    ) -> T | None:
+        """``read_only`` says the caller will only serialise the document, never save it."""
+        ...
 
     async def list(self, query: ListQuery, *, scope: t.Any) -> Page[T]: ...
 
@@ -71,16 +87,25 @@ class ResourceBackend(t.Protocol[T]):
         self, id: t.Any, data: dict[str, t.Any], *, scope: t.Any, if_rev: int | None = None
     ) -> T: ...
 
-    async def delete(self, id: t.Any, *, scope: t.Any) -> None: ...
+    async def delete(self, id: t.Any, *, scope: t.Any, if_rev: int | None = None) -> None: ...
 
 
 class MongoBackend(t.Generic[T]):
     """``ResourceBackend`` over a mongospecs model (or a manager from ``Model.using(...)``)."""
 
-    def __init__(self, model: type[T], manager: t.Any = None) -> None:
+    def __init__(self, model: type[T], manager: t.Any = None, *, max_time_ms: int | None = 10_000) -> None:
         self.model = model
         self._manager = manager
         self.meta = meta_of(model)
+        self.max_time_ms = max_time_ms
+        """Time limit for reads made on behalf of a request, used when neither the registry
+        nor the model sets one. A request should not be able to run a query without bound."""
+
+    def _bounded(self, query: t.Any) -> t.Any:
+        manager = self.manager
+        if self.max_time_ms is None or manager.registry.max_time_ms or manager.meta.config.max_time_ms:
+            return query
+        return query.options(max_time_ms=self.max_time_ms)
 
     @property
     def manager(self) -> t.Any:
@@ -94,16 +119,35 @@ class MongoBackend(t.Generic[T]):
             return None
         return query.filter(scope) if scope is not None else query
 
-    async def get(self, id: t.Any, *, scope: t.Any, include: t.Sequence[str] = ()) -> T | None:
+    supports_raw = True
+    """``get`` and ``list`` accept ``fields=``: return stored documents (dicts) holding only
+    those fields instead of models. A Resource asks for this when it will only serialise the
+    result and its view can do that without a model."""
+
+    async def get(
+        self,
+        id: t.Any,
+        *,
+        scope: t.Any,
+        include: t.Sequence[str] = (),
+        read_only: bool = False,
+        fields: t.Sequence[str] | None = None,
+    ) -> T | None:
         query = self._by_id(id, scope)
         if query is None:
             return None
+        query = self._bounded(query)
+        if fields is not None:
+            query = query.raw().select(*fields)  # only what will be shown leaves the database
+        elif read_only:
+            query = query.lean()  # nothing will be saved: skip change tracking
         for path in include:
             query = query.include(path)
         return t.cast("T | None", await query.first())
 
-    async def list(self, query: ListQuery, *, scope: t.Any) -> Page[T]:
-        q = self.manager.find(*(f.to_expr() for f in query.filters))
+    async def list(self, query: ListQuery, *, scope: t.Any, fields: t.Sequence[str] | None = None) -> Page[T]:
+        q = self._bounded(self.manager.find(*(f.to_expr() for f in query.filters)))
+        q = q.raw().select(*fields) if fields is not None else q.lean()  # read-only either way
         if scope is not None:
             q = q.filter(scope)
         if query.sort:
@@ -116,26 +160,103 @@ class MongoBackend(t.Generic[T]):
 
     async def create(self, data: dict[str, t.Any]) -> T:
         stored = {self.meta.fields[k].stored: v for k, v in data.items()}
-        doc = self.meta.decode(stored, trusted=False)
-        return t.cast(T, await self.manager.insert(doc))
+        doc = self.meta.decode(stored, stored=False)
+        return t.cast(T, await self.manager.insert(doc))  # checked again there: hooks may change it
 
-    async def patch(self, id: t.Any, data: dict[str, t.Any], *, scope: t.Any, if_rev: int | None = None) -> T:
+    supports_merge = True
+    """``patch`` accepts ``merge=``: a :class:`~mongospecs_web.merge.PatchPlan` of writes inside
+    embedded objects, applied together with ``data`` in one atomic update."""
+
+    async def patch(
+        self,
+        id: t.Any,
+        data: dict[str, t.Any],
+        *,
+        scope: t.Any,
+        if_rev: int | None = None,
+        merge: t.Any = None,
+    ) -> T:
         query = self._by_id(id, scope)
         if query is None:
             raise DocumentNotFound(f"{self.model.__name__} {id!r} does not exist")
-        if not data:
+        nested = merge is not None and merge.nested
+        if not data and not nested:
             doc = await query.first()
             if doc is None:
                 raise DocumentNotFound(f"{self.model.__name__} {id!r} does not exist")
             return t.cast(T, doc)
-        from mongospecs import trusted
+        from mongospecs import OperationFailed, Set, Unset, trusted
+        from mongospecs.expr import and_filters
 
-        target = trusted(query._user_filter())
-        return t.cast(T, await self.manager.update(target, if_rev=if_rev, **data))
+        base = query._user_filter()
+        if not nested:
+            return t.cast(T, await self.manager.update(trusted(base), if_rev=if_rev, **data))
+        meta = self.manager.meta
+        ops: list[t.Any] = []
+        if merge.set:
+            ops.append(Set(merge.set))
+        if merge.unset:
+            ops.append(Unset(*merge.unset))
+        # A partial object can only be merged into an object that is already there.
+        present = {meta.stored_path(path): {"$type": "object"} for path in merge.parents}
+        try:
+            return t.cast(
+                T, await self.manager.update(trusted(and_filters(base, present)), *ops, if_rev=if_rev, **data)
+            )
+        except DocumentNotFound:
+            if not merge.parents:
+                raise
+            raw = await self.manager.find(trusted(base)).raw().first()
+            if raw is None:
+                raise
+            revision = next((f for f in meta.fields.values() if f.has(Revision)), None)
+            if if_rev is not None and revision is not None and (raw.get(revision.stored) or 0) != if_rev:
+                raise StaleDocumentError(
+                    f"{self.model.__name__}: revision {if_rev} is no longer current"
+                ) from None
+            from mongospecs_web.errors import Unprocessable
 
-    async def delete(self, id: t.Any, *, scope: t.Any) -> None:
+            errors = [
+                {
+                    "field": client_path,
+                    "message": "does not exist yet; send all of its required fields: " + ", ".join(required),
+                }
+                for path, (client_path, required) in merge.parents.items()
+                if not isinstance(_dig(raw, meta.stored_path(path)), dict)
+            ]
+            raise Unprocessable("The request body failed validation.", errors=errors or None) from None
+        except OperationFailed as exc:
+            if exc.code != _PATH_NOT_VIABLE:
+                raise
+            from mongospecs_web.errors import Unprocessable
+
+            raise Unprocessable(
+                "Part of the request addresses an embedded object that is stored as null. "
+                "Send that object whole, with all of its required fields."
+            ) from None
+
+    async def delete(self, id: t.Any, *, scope: t.Any, if_rev: int | None = None) -> None:
+        manager = self.manager
+        condition = manager.compile(scope) if scope is not None else None
+        try:
+            key = manager.meta.cast("id", id)
+        except QueryError:
+            raise DocumentNotFound(f"{self.model.__name__} {id!r} does not exist") from None
+        # One conditional write when nothing needs the document itself (no delete hooks, no
+        # cascades): the scope and the revision are part of the write's own filter.
+        if await manager.delete_by_id(key, condition=condition, if_rev=if_rev):
+            return
         query = self._by_id(id, scope)
         doc = await query.first() if query is not None else None
         if doc is None:
             raise DocumentNotFound(f"{self.model.__name__} {id!r} does not exist")
-        await self.manager.delete_document(doc)
+        # The document is loaded so that hooks and cascades run. The scope is then also
+        # part of the delete's own filter, so it holds at the moment of the write.
+        try:
+            await manager.delete_document(doc, condition=condition, if_rev=if_rev)
+        except StaleDocumentError:
+            if if_rev is not None:
+                raise
+            if scope is not None and not await self._by_id(id, scope).exists():
+                raise DocumentNotFound(f"{self.model.__name__} {id!r} does not exist") from None
+            raise

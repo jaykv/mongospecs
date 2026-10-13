@@ -7,19 +7,12 @@ JSON Schema for each view is produced by transforming the model's own schema.
 
 from __future__ import annotations
 
-import base64
-import datetime as dt
-import decimal
-import enum
 import typing as t
-import uuid
 import weakref
-
-from bson import ObjectId
-from bson.decimal128 import Decimal128
 
 from mongospecs import CreatedAt, Deferred, DeletedAt, Immutable, Ref, Revision, UpdatedAt, meta_of
 from mongospecs.codec import FieldInfo
+from mongospecs.jsonable import jsonable
 from mongospecs.markers import is_computed
 from mongospecs.meta import ModelMeta
 
@@ -27,35 +20,202 @@ __all__ = ["View", "jsonable", "view_of"]
 
 _MANAGED = (CreatedAt, UpdatedAt, DeletedAt, Revision)
 
+INT64_MIN, INT64_MAX = -(2**63), 2**63 - 1
+"""MongoDB's largest integer type is 64 bits; a larger integer cannot be stored as one."""
 
-def jsonable(value: t.Any) -> t.Any:
-    """Convert a BSON-ready value to plain JSON types."""
-    if value is None or isinstance(value, str | bool | int | float):
-        return value
-    if isinstance(value, ObjectId | uuid.UUID | decimal.Decimal | Decimal128):
-        return str(value)
-    if isinstance(value, dt.datetime):
-        return value.isoformat().replace("+00:00", "Z")
-    if isinstance(value, dt.date | dt.time):
-        return value.isoformat()
-    if isinstance(value, enum.Enum):
-        return jsonable(value.value)
+
+class Nested:
+    """Where the private fields are inside the value of one field.
+
+    ``private`` and ``children`` describe an embedded model (by every key it may appear
+    under: attribute name, stored name, the backend's own name); ``elem`` describes the
+    items of a list or the values of a dict.
+    """
+
+    __slots__ = ("children", "elem", "model", "private")
+
+    def __init__(self) -> None:
+        self.model = False
+        self.private: frozenset[str] = frozenset()
+        self.children: dict[str, Nested] = {}
+        self.elem: Nested | None = None
+
+    def hides_something(self, seen: set[int] | None = None) -> bool:
+        seen = set() if seen is None else seen
+        if id(self) in seen:
+            return False
+        seen.add(id(self))
+        return (
+            bool(self.private)
+            or any(child.hides_something(seen) for child in self.children.values())
+            or (self.elem is not None and self.elem.hides_something(seen))
+        )
+
+
+def embedded_models(tp: t.Any, found: dict[type, None] | None = None) -> dict[type, None]:
+    """Every embedded (non-document) model class reachable from an annotation, at any depth."""
+    from mongospecs import Document
+    from mongospecs.codec import _codec_or_none
+
+    found = {} if found is None else found
+    while t.get_origin(tp) is t.Annotated:
+        tp = t.get_args(tp)[0]
+    if isinstance(tp, type) and not issubclass(tp, Document) and t.get_origin(tp) is None:
+        codec = _codec_or_none(tp)
+        if codec is not None and tp not in found:
+            found[tp] = None
+            for info in codec.fields(tp).values():
+                embedded_models(info.type, found)
+        return found
+    if t.get_origin(tp) is Ref:
+        return found  # another document: its own view applies
+    for arg in t.get_args(tp):
+        embedded_models(arg, found)
+    return found
+
+
+def _model_keys(cls: type) -> dict[str, tuple[FieldInfo, frozenset[str]]]:
+    from mongospecs.codec import codec_for
+
+    codec = codec_for(cls)
+    natives = {name: native for name, native, _, _ in codec.raw_fields(cls)}
+    return {
+        name: (info, frozenset({name, info.stored, natives.get(name, name)}))
+        for name, info in codec.fields(cls).items()
+    }
+
+
+def nested_plan(tp: t.Any, cache: dict[type, Nested]) -> Nested | None:
+    """The :class:`Nested` plan for an annotation, or ``None`` when it holds no embedded model."""
+    from mongospecs import Document
+    from mongospecs.codec import _UNION_ORIGINS, _codec_or_none
+
+    while t.get_origin(tp) is t.Annotated:
+        tp = t.get_args(tp)[0]
+    origin = t.get_origin(tp)
+    if origin is Ref:
+        return None
+    if origin is None:
+        if not isinstance(tp, type) or issubclass(tp, Document) or _codec_or_none(tp) is None:
+            return None
+        node = cache.get(tp)
+        if node is None:
+            node = cache[tp] = Nested()
+            node.model = True
+            private: set[str] = set()
+            for info, keys in _model_keys(tp).values():
+                if info.policy.private:
+                    private |= keys
+                    continue
+                child = nested_plan(info.type, cache)
+                if child is not None:
+                    for key in keys:
+                        node.children[key] = child
+            node.private = frozenset(private)
+        return node
+    parts = [plan for arg in t.get_args(tp) if (plan := nested_plan(arg, cache)) is not None]
+    if not parts:
+        return None
+    if origin in _UNION_ORIGINS:
+        if len(parts) == 1:
+            return parts[0]
+        merged = Nested()  # a union: hide whatever any member hides, so nothing can leak
+        for part in parts:
+            merged.model = merged.model or part.model
+            merged.private |= part.private
+            for key, child in part.children.items():
+                merged.children.setdefault(key, child)
+            merged.elem = merged.elem or part.elem
+        return merged
+    container = Nested()
+    container.elem = parts[-1]  # list[X] -> X, dict[str, X] -> X
+    return container
+
+
+def strip_nested(value: t.Any, node: Nested) -> t.Any:
+    """Remove private keys from a JSON-shaped value, in place."""
     if isinstance(value, dict):
-        return {str(k): jsonable(v) for k, v in value.items()}
-    if isinstance(value, list | tuple | set | frozenset):
-        return [jsonable(v) for v in value]
-    if isinstance(value, bytes | bytearray):
-        return base64.b64encode(bytes(value)).decode("ascii")
-    if isinstance(value, Ref):
-        return jsonable(value.id)
-    return str(value)
+        if node.model:
+            for key in node.private:
+                value.pop(key, None)
+            for key, child in node.children.items():
+                if key in value:
+                    strip_nested(value[key], child)
+        elif node.elem is not None:
+            for item in value.values():
+                strip_nested(item, node.elem)
+    elif isinstance(value, list) and node.elem is not None:
+        for item in value:
+            strip_nested(item, node.elem)
+    return value
+
+
+def nested_violations(value: t.Any, node: Nested, path: str, out: list[str]) -> None:
+    """Collect the dotted paths of private keys a client supplied."""
+    if isinstance(value, dict):
+        if node.model:
+            out.extend(f"{path}.{key}" for key in value if key in node.private)
+            for key, child in node.children.items():
+                if key in value:
+                    nested_violations(value[key], child, f"{path}.{key}", out)
+        elif node.elem is not None:
+            for key, item in value.items():
+                nested_violations(item, node.elem, f"{path}.{key}", out)
+    elif isinstance(value, list) and node.elem is not None:
+        for index, item in enumerate(value):
+            nested_violations(item, node.elem, f"{path}.{index}", out)
+
+
+def _refs(node: t.Any, out: set[str]) -> None:
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "$ref" and isinstance(value, str) and value.startswith("#/$defs/"):
+                out.add(value.rsplit("/", 1)[1])
+            else:
+                _refs(value, out)
+    elif isinstance(node, list):
+        for value in node:
+            _refs(value, out)
+
+
+def _reachable(schema: dict[str, t.Any], defs: dict[str, t.Any]) -> dict[str, t.Any]:
+    """The definitions ``schema`` actually refers to, directly or through one another."""
+    found: set[str] = set()
+    _refs(schema, found)
+    pending = list(found)
+    while pending:
+        inner: set[str] = set()
+        _refs(defs.get(pending.pop(), {}), inner)
+        pending.extend(inner - found)
+        found |= inner
+    return {name: definition for name, definition in defs.items() if name in found}
+
+
+def _has_oversized_int(value: t.Any) -> bool:
+    if isinstance(value, int):
+        return not INT64_MIN <= value <= INT64_MAX
+    if isinstance(value, list):
+        return any(_has_oversized_int(v) for v in value)
+    if isinstance(value, dict):
+        return any(_has_oversized_int(v) for v in value.values())
+    return False
+
+
+def _takes_any_number(tp: t.Any) -> bool:
+    """A float or Decimal field: a large JSON integer becomes one of those and fits."""
+    import decimal
+
+    from mongospecs.codec import strip_optional
+
+    return strip_optional(tp) in (float, decimal.Decimal)
 
 
 class View:
     """What of a model is readable, writable, filterable and sortable from outside."""
 
-    def __init__(self, model: type) -> None:
+    def __init__(self, model: type, *, explicit_writes: bool = False) -> None:
         self.model = model
+        self.explicit_writes = explicit_writes
         self.meta: ModelMeta = meta_of(model)
         fields = self.meta.fields
         managed = {f.name for f in fields.values() if any(f.has(m) for m in _MANAGED)}
@@ -66,13 +226,19 @@ class View:
         writable = frozenset(
             f.name for f in fields.values() if f.name != "id" and f.name not in managed and not f.transient
         )
+
+        def may(flag: bool | None, default: bool) -> bool:
+            # explicit mode: only what the policy turns on; otherwise the policy's own default
+            return flag is True if explicit_writes else default
+
         self.insertable: frozenset[str] = frozenset(
-            f.name
-            for f in fields.values()
-            if f.policy.can_insert and f.name != "id" and f.name not in managed and not f.transient
+            name for name in writable if may(fields[name].policy.insert, fields[name].policy.can_insert)
         )
         self.updatable: frozenset[str] = frozenset(
-            name for name in writable if fields[name].policy.can_update and not fields[name].has(Immutable)
+            name
+            for name in writable
+            if may(fields[name].policy.update, fields[name].policy.can_update)
+            and not fields[name].has(Immutable)
         )
         self.filterable: dict[str, tuple[str, ...]] = {
             f.name: f.policy.filter_ops
@@ -91,40 +257,82 @@ class View:
             for name, attr in vars(klass).items()
             if is_computed(attr)
         )
+        # Serialisation plan: plain readable fields, and the relations that may be embedded.
+        self._plain: tuple[str, ...] = tuple(f.name for f in self.readable if not f.transient)
+        self._relations: tuple[FieldInfo, ...] = tuple(
+            f for f in self.readable if f.transient or f.ref is not None
+        )
+        # Private fields of embedded models, at any depth below a field of this model.
+        cache: dict[type, Nested] = {}
+        self._nested: dict[str, Nested] = {
+            f.name: plan
+            for f in fields.values()
+            if not f.transient and (plan := nested_plan(f.type, cache)) is not None and plan.hides_something()
+        }
+        self._nested_read: tuple[tuple[str, Nested], ...] = tuple(
+            (name, plan) for name, plan in self._nested.items() if name in self._plain
+        )
         revision = next((f for f in fields.values() if f.has(Revision)), None)
         self.revision: str | None = revision.name if revision else None
+        self._revision_stored: str | None = revision.stored if revision else None
+        from mongospecs_web.fastread import compile_plan
+
+        self.fast = compile_plan(model, self.computed)
+        """Plan for serialising straight from a stored document, or ``None`` when this model
+        needs the model path (see :mod:`mongospecs_web.fastread`)."""
 
     # -- output ----------------------------------------------------------------
 
     def serialize(self, doc: t.Any, include: t.Collection[str] = ()) -> dict[str, t.Any]:
-        """The Read view of a document as JSON types. Private fields never appear."""
+        """The Read view of a document as JSON types. Private fields never appear.
+
+        ``doc`` is a model instance, or a stored document (a ``dict``) read for this purpose.
+        """
+        if type(doc) is dict:
+            return self.serialize_raw(doc, include)
         if type(doc) is not self.model:
             return view_of(type(doc)).serialize(doc, include)
-        meta = self.meta
-        encoded = meta.encode(doc)
-        out: dict[str, t.Any] = {}
-        for f in self.readable:
-            nested = {p.partition(".")[2] for p in include if p.partition(".")[0] == f.name and "." in p}
-            if f.transient:
-                if f.name in include:
-                    value = getattr(doc, f.name)
+        data = self.meta.codec.to_json(doc)
+        out = {name: data.get(name) for name in self._plain}
+        for name, plan in self._nested_read:
+            strip_nested(out[name], plan)
+        if include:
+            for f in self._relations:
+                if f.name not in include:
+                    continue
+                nested = {p.partition(".")[2] for p in include if p.partition(".")[0] == f.name and "." in p}
+                value = getattr(doc, f.name)
+                if f.transient:
                     out[f.name] = (
                         [_child(v, nested) for v in value] if isinstance(value, list) else jsonable(value)
                     )
-                continue
-            if f.ref is not None and f.name in include:
-                out[f.name] = _embed(getattr(doc, f.name), encoded.get(f.stored), nested)
-                continue
-            out[f.name] = jsonable(encoded.get(f.stored))
-        if meta.disc_key:
-            out[meta.disc_key] = encoded.get(meta.disc_key)
+                else:
+                    out[f.name] = _embed(value, out.get(f.name), nested)
+        if self.meta.disc_key:
+            out[self.meta.disc_key] = self.meta.disc_value
         for name in self.computed:
             out[name] = jsonable(getattr(doc, name))
         return out
 
+    def serialize_raw(self, raw: dict[str, t.Any], include: t.Collection[str] = ()) -> dict[str, t.Any]:
+        """The Read view of a stored document; identical to decoding it and calling ``serialize``."""
+        from mongospecs_web.fastread import Slow
+
+        if self.fast is not None and not include:
+            try:
+                return self.fast.serialize(raw)
+            except Slow:
+                pass  # a value that does not have its declared type: take the careful path
+        return self.serialize(self.meta.decode(raw), include)
+
     def etag(self, doc: t.Any) -> str | None:
         if self.revision is None:
             return None
+        if type(doc) is dict:
+            revision = doc.get(self._revision_stored, 0)
+            if type(revision) is not int:  # stored as a double by another writer: let the model read it
+                revision = getattr(self.meta.decode(doc), self.revision)
+            return f'"{revision}"'
         return f'"{getattr(doc, self.revision)}"'
 
     # -- input ---------------------------------------------------------------
@@ -145,15 +353,151 @@ class View:
             )
         if errors:
             raise Unprocessable("The request body names fields that cannot be written.", errors=errors)
+        for key, value in data.items():
+            plan = self._nested.get(key)
+            if plan is not None:
+                hidden: list[str] = []
+                nested_violations(value, plan, key, hidden)
+                errors.extend({"field": path, "message": "unknown field"} for path in hidden)
+            if action == "create":
+                from mongospecs_web.merge import nested_write_errors
+
+                nested_write_errors(self.meta.fields[key].type, value, key, self.explicit_writes, errors)
+            if _has_oversized_int(value) and not _takes_any_number(self.meta.fields[key].type):
+                errors.append(
+                    {"field": key, "message": f"integers must be between {INT64_MIN} and {INT64_MAX}"}
+                )
+        if errors:
+            raise Unprocessable("The request body failed validation.", errors=errors)
         return data
+
+    def plan_patch(self, data: t.Mapping[str, t.Any], *, merge: bool = True) -> t.Any:
+        """Turn a checked PATCH body into a :class:`~mongospecs_web.merge.PatchPlan`.
+
+        An object given for an embedded model is merged into the stored one, key by key;
+        see :mod:`mongospecs_web.merge` for the rules and the reason. With ``merge=False``
+        it replaces the stored object instead.
+        """
+        from mongospecs_web.errors import Unprocessable
+        from mongospecs_web.merge import plan_patch
+
+        plan, errors = plan_patch(self.meta.fields, data, self.explicit_writes, merge=merge)
+        if errors:
+            raise Unprocessable("The request body failed validation.", errors=errors)
+        return plan
+
+    def plan_put(self, data: t.Mapping[str, t.Any]) -> t.Any:
+        """Turn a checked PUT body into a :class:`~mongospecs_web.merge.PatchPlan` that
+        replaces everything the client may write and nothing else."""
+        from mongospecs_web.errors import Unprocessable
+        from mongospecs_web.merge import plan_put
+
+        plan, errors = plan_put(self.model, self.meta.fields, self.updatable, data, self.explicit_writes)
+        if errors:
+            raise Unprocessable("The request body failed validation.", errors=errors)
+        return plan
+
+    def _merge_schema(self, node: t.Any, defs: dict[str, t.Any], suffix: str = "Patch") -> t.Any:
+        """The PATCH form of a property schema: an embedded object becomes a partial object.
+
+        References reached directly or through ``anyOf`` (an optional object) point at
+        ``<Name>Patch``; those inside ``items`` or ``additionalProperties`` are left alone,
+        because lists and dicts are replaced whole. With ``suffix="Put"`` it is the PUT form.
+        """
+        if not isinstance(node, dict):
+            return node
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/$defs/"):
+            name = ref.rsplit("/", 1)[1]
+            return {**node, "$ref": f"#/$defs/{self._patch_def(name, defs, suffix)}"}
+        out = dict(node)
+        for key in _MERGE_KEYS:
+            if isinstance(node.get(key), list):
+                out[key] = [self._merge_schema(item, defs, suffix) for item in node[key]]
+        return out
+
+    def _patch_def(self, name: str, defs: dict[str, t.Any], suffix: str = "Patch") -> str:
+        """Define ``<Name>Patch`` (every writable key, none required) or ``<Name>Put`` (the
+        writable keys of an object that also holds values only the server sets; the required
+        ones stay required). An object without such values has no Put form: it is sent whole."""
+        from mongospecs_web.merge import _fields, _may, _protected, holds_protected, single_model
+
+        patch_name = f"{name}{suffix}"
+        if patch_name in defs or name not in defs:
+            return patch_name if patch_name in defs else name
+        classes = {
+            cls.__name__: cls for info in self.meta.fields.values() for cls in embedded_models(info.type)
+        }
+        cls = classes.get(name)
+        if cls is None:
+            return name
+        put = suffix == "Put"
+        if put and not _protected(cls, self.explicit_writes, set()):
+            return name
+        writable: set[str] = set()
+        kept: set[str] = set()  # PUT: left as stored when the request does not send them
+        for key, (_, info) in _fields(cls).items():
+            if info.policy.private or not _may(info, "update", self.explicit_writes):
+                continue
+            guarded = put and holds_protected(info.type, self.explicit_writes)
+            if guarded and single_model(info.type) is None:
+                continue  # a list or dict of such objects cannot be replaced at all
+            writable.add(key)
+            if guarded:
+                kept.add(key)
+        full = defs[name]
+        defs[patch_name] = partial = {k: v for k, v in full.items() if k not in ("required", "title")}
+        partial["properties"] = {
+            key: self._merge_schema(value, defs, suffix)
+            for key, value in full.get("properties", {}).items()
+            if key in writable
+        }
+        required = [k for k in full.get("required", []) if k in writable and k not in kept]
+        if put and required:
+            partial["required"] = required
+        partial["additionalProperties"] = False
+        return patch_name
 
     # -- schemas ----------------------------------------------------------------
 
     def _base(self) -> dict[str, t.Any]:
-        return self.meta.codec.json_schema(self.model)
+        base = self.meta.codec.json_schema(self.model)
+        defs = dict(base.get("$defs", {}))
+        hidden_by_name: dict[str, frozenset[str]] = {}
+        if self.private:
+            # The model's own definition survives only where the model refers to itself;
+            # it must not describe more than the Read view does.
+            hidden_by_name[self.model.__name__] = self.private | {
+                self.meta.fields[name].stored for name in self.private
+            }
+        for info in self.meta.fields.values():
+            for cls in embedded_models(info.type):
+                keys = frozenset().union(*(k for f, k in _model_keys(cls).values() if f.policy.private))
+                if keys:
+                    hidden_by_name[cls.__name__] = hidden_by_name.get(cls.__name__, frozenset()) | keys
+        changed = False
+        for name, hidden in hidden_by_name.items():
+            own = defs.get(name)
+            if isinstance(own, dict):
+                own = dict(own)
+                own["properties"] = {k: v for k, v in own.get("properties", {}).items() if k not in hidden}
+                own["required"] = [k for k in own.get("required", []) if k not in hidden]
+                if not own["required"]:
+                    del own["required"]
+                defs[name] = own
+                changed = True
+        if changed:
+            base = {**base, "$defs": defs}
+        return base
 
-    def schema(self, kind: t.Literal["read", "create", "patch"]) -> dict[str, t.Any]:
-        """JSON Schema of one view. ``$defs`` of nested models are kept alongside."""
+    def schema(
+        self, kind: t.Literal["read", "create", "patch", "put"], *, merge: bool = True
+    ) -> dict[str, t.Any]:
+        """JSON Schema of one view. ``$defs`` of nested models are kept alongside.
+
+        ``merge=False`` gives the Patch view of a resource whose ``PATCH`` replaces embedded
+        objects instead of merging into them.
+        """
         base = self._base()
         props: dict[str, t.Any] = base.get("properties", {})
         required: list[str] = list(base.get("required", []))
@@ -178,9 +522,33 @@ class View:
                 schema["required"] = [n for n in required if n in allowed]
         if not schema.get("required"):
             schema.pop("required", None)
-        if "$defs" in base:
-            schema["$defs"] = base["$defs"]
+        all_defs: dict[str, t.Any] = dict(base.get("$defs", {}))
+        if kind == "patch" and merge:
+            schema["properties"] = {
+                name: self._merge_schema(node, all_defs) for name, node in schema["properties"].items()
+            }
+        elif kind == "put":
+            from mongospecs_web.merge import holds_protected, single_model
+
+            # What holds values only the server sets is optional (left as stored when not
+            # sent); a list or dict of such objects cannot be sent at all.
+            types = {name: self.meta.fields[name].type for name in schema["properties"]}
+            kept = {name for name, tp in types.items() if holds_protected(tp, self.explicit_writes)}
+            schema["properties"] = {
+                name: self._merge_schema(node, all_defs, "Put") if name in kept else node
+                for name, node in schema["properties"].items()
+                if name not in kept or single_model(types[name]) is not None
+            }
+            schema["required"] = [n for n in required if n in allowed and n not in kept]
+            if not schema["required"]:
+                del schema["required"]
+        defs = _reachable(schema, all_defs)
+        if defs:
+            schema["$defs"] = defs
         return schema
+
+
+_MERGE_KEYS = ("anyOf", "oneOf", "allOf")
 
 
 def _child(value: t.Any, include: t.Collection[str]) -> t.Any:
@@ -206,11 +574,12 @@ def _embed(value: t.Any, encoded: t.Any, include: t.Collection[str]) -> t.Any:
     return one(value, encoded)
 
 
-_VIEWS: weakref.WeakKeyDictionary[type, View] = weakref.WeakKeyDictionary()
+_VIEWS: weakref.WeakKeyDictionary[type, dict[bool, View]] = weakref.WeakKeyDictionary()
 
 
-def view_of(model: type) -> View:
-    view = _VIEWS.get(model)
+def view_of(model: type, *, explicit_writes: bool = False) -> View:
+    views = _VIEWS.setdefault(model, {})
+    view = views.get(explicit_writes)
     if view is None:
-        view = _VIEWS[model] = View(model)
+        view = views[explicit_writes] = View(model, explicit_writes=explicit_writes)
     return view

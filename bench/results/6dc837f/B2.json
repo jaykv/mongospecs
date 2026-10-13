@@ -1,0 +1,508 @@
+{
+  "meta": {
+    "git_sha": "6dc837f",
+    "git_dirty": false,
+    "timestamp": "2026-10-13T04:45:53+00:00",
+    "topology": "rs",
+    "quick": false,
+    "mongodb": "8.0.32",
+    "python": "3.13.5",
+    "free_threaded": false,
+    "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "cpus": 8,
+    "versions": {
+      "mongospecs": "0.2.0",
+      "pymongo": "4.18.3",
+      "msgspec": "0.22.0",
+      "pydantic": "2.14.1"
+    }
+  },
+  "workload": "B2",
+  "title": "find() end to end",
+  "question": "How much does the ODM add on top of the raw driver for reads of 1, 100 and 10,000 documents?",
+  "rows": [
+    {
+      "shape": "small",
+      "backend": "pymongo",
+      "case": "driver dicts",
+      "n": 1,
+      "median_ms": 0.421,
+      "vs_driver": 1.0
+    },
+    {
+      "shape": "small",
+      "backend": "msgspec",
+      "case": "odm raw()",
+      "n": 1,
+      "median_ms": 0.503,
+      "vs_driver": 1.19
+    },
+    {
+      "shape": "small",
+      "backend": "msgspec",
+      "case": "odm lean()",
+      "n": 1,
+      "median_ms": 0.392,
+      "vs_driver": 0.93
+    },
+    {
+      "shape": "small",
+      "backend": "msgspec",
+      "case": "odm tracked",
+      "n": 1,
+      "median_ms": 0.434,
+      "vs_driver": 1.03
+    },
+    {
+      "shape": "small",
+      "backend": "pymongo",
+      "case": "driver dicts",
+      "n": 100,
+      "median_ms": 0.562,
+      "vs_driver": 1.0
+    },
+    {
+      "shape": "small",
+      "backend": "msgspec",
+      "case": "odm raw()",
+      "n": 100,
+      "median_ms": 0.578,
+      "vs_driver": 1.03
+    },
+    {
+      "shape": "small",
+      "backend": "msgspec",
+      "case": "odm lean()",
+      "n": 100,
+      "median_ms": 0.696,
+      "vs_driver": 1.24
+    },
+    {
+      "shape": "small",
+      "backend": "msgspec",
+      "case": "odm tracked",
+      "n": 100,
+      "median_ms": 0.899,
+      "vs_driver": 1.6
+    },
+    {
+      "shape": "small",
+      "backend": "pymongo",
+      "case": "driver dicts",
+      "n": 10000,
+      "median_ms": 19.226,
+      "vs_driver": 1.0
+    },
+    {
+      "shape": "small",
+      "backend": "msgspec",
+      "case": "odm raw()",
+      "n": 10000,
+      "median_ms": 43.938,
+      "vs_driver": 2.29
+    },
+    {
+      "shape": "small",
+      "backend": "msgspec",
+      "case": "odm lean()",
+      "n": 10000,
+      "median_ms": 41.261,
+      "vs_driver": 2.15
+    },
+    {
+      "shape": "small",
+      "backend": "msgspec",
+      "case": "odm tracked",
+      "n": 10000,
+      "median_ms": 63.621,
+      "vs_driver": 3.31
+    },
+    {
+      "shape": "small",
+      "backend": "pydantic",
+      "case": "odm raw()",
+      "n": 1,
+      "median_ms": 0.589,
+      "vs_driver": 1.05
+    },
+    {
+      "shape": "small",
+      "backend": "pydantic",
+      "case": "odm lean()",
+      "n": 1,
+      "median_ms": 0.73,
+      "vs_driver": 1.3
+    },
+    {
+      "shape": "small",
+      "backend": "pydantic",
+      "case": "odm tracked",
+      "n": 1,
+      "median_ms": 1.62,
+      "vs_driver": 2.88
+    },
+    {
+      "shape": "small",
+      "backend": "pydantic",
+      "case": "odm raw()",
+      "n": 100,
+      "median_ms": 1.817,
+      "vs_driver": 0.61
+    },
+    {
+      "shape": "small",
+      "backend": "pydantic",
+      "case": "odm lean()",
+      "n": 100,
+      "median_ms": 3.942,
+      "vs_driver": 1.33
+    },
+    {
+      "shape": "small",
+      "backend": "pydantic",
+      "case": "odm tracked",
+      "n": 100,
+      "median_ms": 4.373,
+      "vs_driver": 1.47
+    },
+    {
+      "shape": "small",
+      "backend": "pydantic",
+      "case": "odm raw()",
+      "n": 10000,
+      "median_ms": 33.515,
+      "vs_driver": 0.65
+    },
+    {
+      "shape": "small",
+      "backend": "pydantic",
+      "case": "odm lean()",
+      "n": 10000,
+      "median_ms": 54.828,
+      "vs_driver": 1.07
+    },
+    {
+      "shape": "small",
+      "backend": "pydantic",
+      "case": "odm tracked",
+      "n": 10000,
+      "median_ms": 93.484,
+      "vs_driver": 1.82
+    },
+    {
+      "shape": "small",
+      "backend": "attrs",
+      "case": "odm raw()",
+      "n": 1,
+      "median_ms": 0.82,
+      "vs_driver": 1.06
+    },
+    {
+      "shape": "small",
+      "backend": "attrs",
+      "case": "odm lean()",
+      "n": 1,
+      "median_ms": 0.854,
+      "vs_driver": 1.1
+    },
+    {
+      "shape": "small",
+      "backend": "attrs",
+      "case": "odm tracked",
+      "n": 1,
+      "median_ms": 1.046,
+      "vs_driver": 1.35
+    },
+    {
+      "shape": "small",
+      "backend": "attrs",
+      "case": "odm raw()",
+      "n": 100,
+      "median_ms": 0.806,
+      "vs_driver": 0.78
+    },
+    {
+      "shape": "small",
+      "backend": "attrs",
+      "case": "odm lean()",
+      "n": 100,
+      "median_ms": 1.273,
+      "vs_driver": 1.23
+    },
+    {
+      "shape": "small",
+      "backend": "attrs",
+      "case": "odm tracked",
+      "n": 100,
+      "median_ms": 1.695,
+      "vs_driver": 1.63
+    },
+    {
+      "shape": "small",
+      "backend": "attrs",
+      "case": "odm raw()",
+      "n": 10000,
+      "median_ms": 25.294,
+      "vs_driver": 1.04
+    },
+    {
+      "shape": "small",
+      "backend": "attrs",
+      "case": "odm lean()",
+      "n": 10000,
+      "median_ms": 72.603,
+      "vs_driver": 3.0
+    },
+    {
+      "shape": "small",
+      "backend": "attrs",
+      "case": "odm tracked",
+      "n": 10000,
+      "median_ms": 70.821,
+      "vs_driver": 2.93
+    },
+    {
+      "shape": "nested",
+      "backend": "pymongo",
+      "case": "driver dicts",
+      "n": 1,
+      "median_ms": 0.432,
+      "vs_driver": 1.0
+    },
+    {
+      "shape": "nested",
+      "backend": "msgspec",
+      "case": "odm raw()",
+      "n": 1,
+      "median_ms": 0.455,
+      "vs_driver": 1.05
+    },
+    {
+      "shape": "nested",
+      "backend": "msgspec",
+      "case": "odm lean()",
+      "n": 1,
+      "median_ms": 0.481,
+      "vs_driver": 1.11
+    },
+    {
+      "shape": "nested",
+      "backend": "msgspec",
+      "case": "odm tracked",
+      "n": 1,
+      "median_ms": 0.507,
+      "vs_driver": 1.17
+    },
+    {
+      "shape": "nested",
+      "backend": "pymongo",
+      "case": "driver dicts",
+      "n": 100,
+      "median_ms": 1.193,
+      "vs_driver": 1.0
+    },
+    {
+      "shape": "nested",
+      "backend": "msgspec",
+      "case": "odm raw()",
+      "n": 100,
+      "median_ms": 1.146,
+      "vs_driver": 0.96
+    },
+    {
+      "shape": "nested",
+      "backend": "msgspec",
+      "case": "odm lean()",
+      "n": 100,
+      "median_ms": 5.1,
+      "vs_driver": 4.28
+    },
+    {
+      "shape": "nested",
+      "backend": "msgspec",
+      "case": "odm tracked",
+      "n": 100,
+      "median_ms": 4.955,
+      "vs_driver": 4.15
+    },
+    {
+      "shape": "nested",
+      "backend": "pymongo",
+      "case": "driver dicts",
+      "n": 10000,
+      "median_ms": 93.285,
+      "vs_driver": 1.0
+    },
+    {
+      "shape": "nested",
+      "backend": "msgspec",
+      "case": "odm raw()",
+      "n": 10000,
+      "median_ms": 97.613,
+      "vs_driver": 1.05
+    },
+    {
+      "shape": "nested",
+      "backend": "msgspec",
+      "case": "odm lean()",
+      "n": 10000,
+      "median_ms": 135.797,
+      "vs_driver": 1.46
+    },
+    {
+      "shape": "nested",
+      "backend": "msgspec",
+      "case": "odm tracked",
+      "n": 10000,
+      "median_ms": 150.438,
+      "vs_driver": 1.61
+    },
+    {
+      "shape": "nested",
+      "backend": "pydantic",
+      "case": "odm raw()",
+      "n": 1,
+      "median_ms": 0.49,
+      "vs_driver": 0.99
+    },
+    {
+      "shape": "nested",
+      "backend": "pydantic",
+      "case": "odm lean()",
+      "n": 1,
+      "median_ms": 0.512,
+      "vs_driver": 1.03
+    },
+    {
+      "shape": "nested",
+      "backend": "pydantic",
+      "case": "odm tracked",
+      "n": 1,
+      "median_ms": 0.521,
+      "vs_driver": 1.05
+    },
+    {
+      "shape": "nested",
+      "backend": "pydantic",
+      "case": "odm raw()",
+      "n": 100,
+      "median_ms": 1.503,
+      "vs_driver": 1.13
+    },
+    {
+      "shape": "nested",
+      "backend": "pydantic",
+      "case": "odm lean()",
+      "n": 100,
+      "median_ms": 2.651,
+      "vs_driver": 1.99
+    },
+    {
+      "shape": "nested",
+      "backend": "pydantic",
+      "case": "odm tracked",
+      "n": 100,
+      "median_ms": 2.782,
+      "vs_driver": 2.09
+    },
+    {
+      "shape": "nested",
+      "backend": "pydantic",
+      "case": "odm raw()",
+      "n": 10000,
+      "median_ms": 90.612,
+      "vs_driver": 0.93
+    },
+    {
+      "shape": "nested",
+      "backend": "pydantic",
+      "case": "odm lean()",
+      "n": 10000,
+      "median_ms": 262.019,
+      "vs_driver": 2.68
+    },
+    {
+      "shape": "nested",
+      "backend": "pydantic",
+      "case": "odm tracked",
+      "n": 10000,
+      "median_ms": 264.325,
+      "vs_driver": 2.7
+    },
+    {
+      "shape": "nested",
+      "backend": "attrs",
+      "case": "odm raw()",
+      "n": 1,
+      "median_ms": 0.932,
+      "vs_driver": 0.9
+    },
+    {
+      "shape": "nested",
+      "backend": "attrs",
+      "case": "odm lean()",
+      "n": 1,
+      "median_ms": 0.551,
+      "vs_driver": 0.53
+    },
+    {
+      "shape": "nested",
+      "backend": "attrs",
+      "case": "odm tracked",
+      "n": 1,
+      "median_ms": 0.536,
+      "vs_driver": 0.52
+    },
+    {
+      "shape": "nested",
+      "backend": "attrs",
+      "case": "odm raw()",
+      "n": 100,
+      "median_ms": 1.858,
+      "vs_driver": 1.17
+    },
+    {
+      "shape": "nested",
+      "backend": "attrs",
+      "case": "odm lean()",
+      "n": 100,
+      "median_ms": 2.571,
+      "vs_driver": 1.62
+    },
+    {
+      "shape": "nested",
+      "backend": "attrs",
+      "case": "odm tracked",
+      "n": 100,
+      "median_ms": 3.024,
+      "vs_driver": 1.91
+    },
+    {
+      "shape": "nested",
+      "backend": "attrs",
+      "case": "odm raw()",
+      "n": 10000,
+      "median_ms": 87.638,
+      "vs_driver": 0.58
+    },
+    {
+      "shape": "nested",
+      "backend": "attrs",
+      "case": "odm lean()",
+      "n": 10000,
+      "median_ms": 159.615,
+      "vs_driver": 1.06
+    },
+    {
+      "shape": "nested",
+      "backend": "attrs",
+      "case": "odm tracked",
+      "n": 10000,
+      "median_ms": 181.859,
+      "vs_driver": 1.21
+    }
+  ],
+  "notes": [],
+  "conclusion": ""
+}

@@ -1,0 +1,279 @@
+{
+  "meta": {
+    "git_sha": "49a32a9",
+    "git_dirty": false,
+    "timestamp": "2026-10-13T07:00:32+00:00",
+    "topology": "rs",
+    "quick": false,
+    "mongodb": "8.0.32",
+    "python": "3.13.5",
+    "free_threaded": false,
+    "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "cpus": 8,
+    "versions": {
+      "mongospecs": "0.2.0",
+      "pymongo": "4.18.3",
+      "msgspec": "0.22.0",
+      "pydantic": "2.14.1"
+    }
+  },
+  "workload": "B9",
+  "title": "Hot paths: CPU per call and commands per operation",
+  "question": "Where does the library spend CPU on the paths every request takes, and how many commands does each operation send?",
+  "rows": [
+    {
+      "backend": "msgspec",
+      "path": "web: GET list of 100",
+      "unit": "cpu us/doc",
+      "value": 10.92
+    },
+    {
+      "backend": "msgspec",
+      "path": "web: GET one",
+      "unit": "cpu us/call",
+      "value": 272.2
+    },
+    {
+      "backend": "msgspec",
+      "path": "Model.get(id)",
+      "unit": "cpu us/call",
+      "value": 248.4
+    },
+    {
+      "backend": "msgspec",
+      "path": "find().all(), 100 tracked",
+      "unit": "cpu us/doc",
+      "value": 8.7
+    },
+    {
+      "backend": "msgspec",
+      "path": "find().lean().all(), 100",
+      "unit": "cpu us/doc",
+      "value": 6.66
+    },
+    {
+      "backend": "msgspec",
+      "path": "include x2, 100 parents",
+      "unit": "cpu us/call",
+      "value": 2239.9
+    },
+    {
+      "backend": "msgspec",
+      "path": "include reviews, per_parent_limit=2 of 100",
+      "unit": "cpu us/call",
+      "value": 23049.0
+    },
+    {
+      "backend": "msgspec",
+      "path": "web: GET one",
+      "unit": "commands",
+      "value": 1.0,
+      "detail": "find"
+    },
+    {
+      "backend": "msgspec",
+      "path": "web: GET list of 100",
+      "unit": "commands",
+      "value": 1.0,
+      "detail": "find"
+    },
+    {
+      "backend": "msgspec",
+      "path": "include x2, 100 parents",
+      "unit": "commands",
+      "value": 3.0,
+      "detail": "find find find"
+    },
+    {
+      "backend": "msgspec",
+      "path": "include reviews, per_parent_limit=2 of 100",
+      "unit": "commands",
+      "value": 3.0,
+      "detail": "find find getMore"
+    },
+    {
+      "backend": "msgspec",
+      "path": "web: DELETE (soft)",
+      "unit": "commands",
+      "value": 2.0,
+      "detail": "find update"
+    },
+    {
+      "backend": "-",
+      "path": "route match, last of 29 routes",
+      "unit": "cpu us/call",
+      "value": 4.41
+    },
+    {
+      "backend": "-",
+      "path": "route match, last of 255 routes",
+      "unit": "cpu us/call",
+      "value": 19.12
+    },
+    {
+      "backend": "-",
+      "path": "route match, last of 1005 routes",
+      "unit": "cpu us/call",
+      "value": 73.25
+    },
+    {
+      "backend": "pydantic",
+      "path": "web: GET list of 100",
+      "unit": "cpu us/doc",
+      "value": 14.36
+    },
+    {
+      "backend": "pydantic",
+      "path": "web: GET one",
+      "unit": "cpu us/call",
+      "value": 251.2
+    },
+    {
+      "backend": "pydantic",
+      "path": "Model.get(id)",
+      "unit": "cpu us/call",
+      "value": 219.6
+    },
+    {
+      "backend": "pydantic",
+      "path": "find().all(), 100 tracked",
+      "unit": "cpu us/doc",
+      "value": 10.93
+    },
+    {
+      "backend": "pydantic",
+      "path": "find().lean().all(), 100",
+      "unit": "cpu us/doc",
+      "value": 8.18
+    },
+    {
+      "backend": "pydantic",
+      "path": "include x2, 100 parents",
+      "unit": "cpu us/call",
+      "value": 2281.2
+    },
+    {
+      "backend": "pydantic",
+      "path": "include reviews, per_parent_limit=2 of 100",
+      "unit": "cpu us/call",
+      "value": 23069.5
+    },
+    {
+      "backend": "pydantic",
+      "path": "web: GET one",
+      "unit": "commands",
+      "value": 1.0,
+      "detail": "find"
+    },
+    {
+      "backend": "pydantic",
+      "path": "web: GET list of 100",
+      "unit": "commands",
+      "value": 1.0,
+      "detail": "find"
+    },
+    {
+      "backend": "pydantic",
+      "path": "include x2, 100 parents",
+      "unit": "commands",
+      "value": 3.0,
+      "detail": "find find find"
+    },
+    {
+      "backend": "pydantic",
+      "path": "include reviews, per_parent_limit=2 of 100",
+      "unit": "commands",
+      "value": 3.0,
+      "detail": "find find getMore"
+    },
+    {
+      "backend": "pydantic",
+      "path": "web: DELETE (soft)",
+      "unit": "commands",
+      "value": 2.0,
+      "detail": "find update"
+    },
+    {
+      "backend": "attrs",
+      "path": "web: GET list of 100",
+      "unit": "cpu us/doc",
+      "value": 17.25
+    },
+    {
+      "backend": "attrs",
+      "path": "web: GET one",
+      "unit": "cpu us/call",
+      "value": 252.9
+    },
+    {
+      "backend": "attrs",
+      "path": "Model.get(id)",
+      "unit": "cpu us/call",
+      "value": 393.9
+    },
+    {
+      "backend": "attrs",
+      "path": "find().all(), 100 tracked",
+      "unit": "cpu us/doc",
+      "value": 14.34
+    },
+    {
+      "backend": "attrs",
+      "path": "find().lean().all(), 100",
+      "unit": "cpu us/doc",
+      "value": 11.69
+    },
+    {
+      "backend": "attrs",
+      "path": "include x2, 100 parents",
+      "unit": "cpu us/call",
+      "value": 2787.5
+    },
+    {
+      "backend": "attrs",
+      "path": "include reviews, per_parent_limit=2 of 100",
+      "unit": "cpu us/call",
+      "value": 25883.3
+    },
+    {
+      "backend": "attrs",
+      "path": "web: GET one",
+      "unit": "commands",
+      "value": 1.0,
+      "detail": "find"
+    },
+    {
+      "backend": "attrs",
+      "path": "web: GET list of 100",
+      "unit": "commands",
+      "value": 1.0,
+      "detail": "find"
+    },
+    {
+      "backend": "attrs",
+      "path": "include x2, 100 parents",
+      "unit": "commands",
+      "value": 3.0,
+      "detail": "find find find"
+    },
+    {
+      "backend": "attrs",
+      "path": "include reviews, per_parent_limit=2 of 100",
+      "unit": "commands",
+      "value": 3.0,
+      "detail": "find find getMore"
+    },
+    {
+      "backend": "attrs",
+      "path": "web: DELETE (soft)",
+      "unit": "commands",
+      "value": 2.0,
+      "detail": "find update"
+    }
+  ],
+  "notes": [
+    "CPU time of this process (best of several batches), so the database's own work and network waits are excluded. Rows with unit 'commands' are driver commands sent, listed in 'detail'."
+  ],
+  "conclusion": ""
+}

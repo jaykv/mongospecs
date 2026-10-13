@@ -1,0 +1,198 @@
+{
+  "meta": {
+    "git_sha": "6dc837f",
+    "git_dirty": false,
+    "timestamp": "2026-10-13T04:45:53+00:00",
+    "topology": "rs",
+    "quick": false,
+    "mongodb": "8.0.32",
+    "python": "3.13.5",
+    "free_threaded": false,
+    "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "cpus": 8,
+    "versions": {
+      "mongospecs": "0.2.0",
+      "pymongo": "4.18.3",
+      "msgspec": "0.22.0",
+      "pydantic": "2.14.1"
+    }
+  },
+  "workload": "B1",
+  "title": "Materialise documents",
+  "question": "What does turning a raw document into a model cost, per backend, and how does it compare with the driver's own BSON decoding?",
+  "rows": [
+    {
+      "shape": "small",
+      "backend": "driver",
+      "mode": "bson->dict",
+      "n": 10000,
+      "us_per_doc": 1.12,
+      "vs_bson": 1.0
+    },
+    {
+      "shape": "small",
+      "backend": "msgspec",
+      "mode": "decode",
+      "n": 10000,
+      "us_per_doc": 1.25,
+      "vs_bson": 1.11
+    },
+    {
+      "shape": "small",
+      "backend": "msgspec",
+      "mode": "decode + encode",
+      "n": 10000,
+      "us_per_doc": 3.14,
+      "vs_bson": 2.81
+    },
+    {
+      "shape": "small",
+      "backend": "pydantic",
+      "mode": "decode",
+      "n": 10000,
+      "us_per_doc": 2.09,
+      "vs_bson": 1.87
+    },
+    {
+      "shape": "small",
+      "backend": "pydantic",
+      "mode": "decode + encode",
+      "n": 10000,
+      "us_per_doc": 4.52,
+      "vs_bson": 4.04
+    },
+    {
+      "shape": "small",
+      "backend": "attrs",
+      "mode": "decode",
+      "n": 10000,
+      "us_per_doc": 1.94,
+      "vs_bson": 1.74
+    },
+    {
+      "shape": "small",
+      "backend": "attrs",
+      "mode": "decode + encode",
+      "n": 10000,
+      "us_per_doc": 4.38,
+      "vs_bson": 3.92
+    },
+    {
+      "shape": "wide",
+      "backend": "driver",
+      "mode": "bson->dict",
+      "n": 10000,
+      "us_per_doc": 6.92,
+      "vs_bson": 1.0
+    },
+    {
+      "shape": "wide",
+      "backend": "msgspec",
+      "mode": "decode",
+      "n": 10000,
+      "us_per_doc": 2.07,
+      "vs_bson": 0.3
+    },
+    {
+      "shape": "wide",
+      "backend": "msgspec",
+      "mode": "decode + encode",
+      "n": 10000,
+      "us_per_doc": 8.89,
+      "vs_bson": 1.28
+    },
+    {
+      "shape": "wide",
+      "backend": "pydantic",
+      "mode": "decode",
+      "n": 10000,
+      "us_per_doc": 6.18,
+      "vs_bson": 0.89
+    },
+    {
+      "shape": "wide",
+      "backend": "pydantic",
+      "mode": "decode + encode",
+      "n": 10000,
+      "us_per_doc": 10.05,
+      "vs_bson": 1.45
+    },
+    {
+      "shape": "wide",
+      "backend": "attrs",
+      "mode": "decode",
+      "n": 10000,
+      "us_per_doc": 6.58,
+      "vs_bson": 0.95
+    },
+    {
+      "shape": "wide",
+      "backend": "attrs",
+      "mode": "decode + encode",
+      "n": 10000,
+      "us_per_doc": 21.38,
+      "vs_bson": 3.09
+    },
+    {
+      "shape": "nested",
+      "backend": "driver",
+      "mode": "bson->dict",
+      "n": 10000,
+      "us_per_doc": 10.09,
+      "vs_bson": 1.0
+    },
+    {
+      "shape": "nested",
+      "backend": "msgspec",
+      "mode": "decode",
+      "n": 10000,
+      "us_per_doc": 3.32,
+      "vs_bson": 0.33
+    },
+    {
+      "shape": "nested",
+      "backend": "msgspec",
+      "mode": "decode + encode",
+      "n": 10000,
+      "us_per_doc": 25.96,
+      "vs_bson": 2.57
+    },
+    {
+      "shape": "nested",
+      "backend": "pydantic",
+      "mode": "decode",
+      "n": 10000,
+      "us_per_doc": 15.88,
+      "vs_bson": 1.57
+    },
+    {
+      "shape": "nested",
+      "backend": "pydantic",
+      "mode": "decode + encode",
+      "n": 10000,
+      "us_per_doc": 17.75,
+      "vs_bson": 1.76
+    },
+    {
+      "shape": "nested",
+      "backend": "attrs",
+      "mode": "decode",
+      "n": 10000,
+      "us_per_doc": 8.32,
+      "vs_bson": 0.83
+    },
+    {
+      "shape": "nested",
+      "backend": "attrs",
+      "mode": "decode + encode",
+      "n": 10000,
+      "us_per_doc": 20.68,
+      "vs_bson": 2.05
+    }
+  ],
+  "notes": [
+    "'decode' always validates. 'decode + encode' adds turning the model back into a BSON-ready dict (what a save does)."
+  ],
+  "conclusion": ""
+}

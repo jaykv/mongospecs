@@ -1,0 +1,271 @@
+{
+  "meta": {
+    "git_sha": "4f3b2c1",
+    "git_dirty": false,
+    "timestamp": "2026-10-13T04:01:56+00:00",
+    "topology": "rs",
+    "quick": false,
+    "mongodb": "8.0.32",
+    "python": "3.13.5",
+    "free_threaded": false,
+    "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "cpus": 8,
+    "versions": {
+      "mongospecs": "0.2.0",
+      "pymongo": "4.18.3",
+      "msgspec": "0.22.0",
+      "pydantic": "2.14.1"
+    }
+  },
+  "workload": "B1",
+  "title": "Materialise documents",
+  "question": "What does turning a raw document into a model cost, per backend, and how does it compare with the driver's own BSON decoding?",
+  "rows": [
+    {
+      "shape": "small",
+      "backend": "driver",
+      "mode": "bson->dict",
+      "n": 10000,
+      "us_per_doc": 1.07,
+      "vs_bson": 1.0
+    },
+    {
+      "shape": "small",
+      "backend": "msgspec",
+      "mode": "validated",
+      "n": 10000,
+      "us_per_doc": 1.21,
+      "vs_bson": 1.13
+    },
+    {
+      "shape": "small",
+      "backend": "msgspec",
+      "mode": "trusted",
+      "n": 10000,
+      "us_per_doc": 1.17,
+      "vs_bson": 1.09
+    },
+    {
+      "shape": "small",
+      "backend": "msgspec",
+      "mode": "tracked",
+      "n": 10000,
+      "us_per_doc": 3.12,
+      "vs_bson": 2.93
+    },
+    {
+      "shape": "small",
+      "backend": "pydantic",
+      "mode": "validated",
+      "n": 10000,
+      "us_per_doc": 3.19,
+      "vs_bson": 2.99
+    },
+    {
+      "shape": "small",
+      "backend": "pydantic",
+      "mode": "trusted",
+      "n": 10000,
+      "us_per_doc": 2.13,
+      "vs_bson": 2.0
+    },
+    {
+      "shape": "small",
+      "backend": "pydantic",
+      "mode": "tracked",
+      "n": 10000,
+      "us_per_doc": 4.51,
+      "vs_bson": 4.22
+    },
+    {
+      "shape": "small",
+      "backend": "attrs",
+      "mode": "validated",
+      "n": 10000,
+      "us_per_doc": 1.93,
+      "vs_bson": 1.81
+    },
+    {
+      "shape": "small",
+      "backend": "attrs",
+      "mode": "trusted",
+      "n": 10000,
+      "us_per_doc": 1.92,
+      "vs_bson": 1.8
+    },
+    {
+      "shape": "small",
+      "backend": "attrs",
+      "mode": "tracked",
+      "n": 10000,
+      "us_per_doc": 5.76,
+      "vs_bson": 5.39
+    },
+    {
+      "shape": "wide",
+      "backend": "driver",
+      "mode": "bson->dict",
+      "n": 10000,
+      "us_per_doc": 4.19,
+      "vs_bson": 1.0
+    },
+    {
+      "shape": "wide",
+      "backend": "msgspec",
+      "mode": "validated",
+      "n": 10000,
+      "us_per_doc": 1.96,
+      "vs_bson": 0.47
+    },
+    {
+      "shape": "wide",
+      "backend": "msgspec",
+      "mode": "trusted",
+      "n": 10000,
+      "us_per_doc": 1.98,
+      "vs_bson": 0.47
+    },
+    {
+      "shape": "wide",
+      "backend": "msgspec",
+      "mode": "tracked",
+      "n": 10000,
+      "us_per_doc": 9.56,
+      "vs_bson": 2.28
+    },
+    {
+      "shape": "wide",
+      "backend": "pydantic",
+      "mode": "validated",
+      "n": 10000,
+      "us_per_doc": 5.11,
+      "vs_bson": 1.22
+    },
+    {
+      "shape": "wide",
+      "backend": "pydantic",
+      "mode": "trusted",
+      "n": 10000,
+      "us_per_doc": 17.36,
+      "vs_bson": 4.14
+    },
+    {
+      "shape": "wide",
+      "backend": "pydantic",
+      "mode": "tracked",
+      "n": 10000,
+      "us_per_doc": 11.22,
+      "vs_bson": 2.67
+    },
+    {
+      "shape": "wide",
+      "backend": "attrs",
+      "mode": "validated",
+      "n": 10000,
+      "us_per_doc": 6.0,
+      "vs_bson": 1.43
+    },
+    {
+      "shape": "wide",
+      "backend": "attrs",
+      "mode": "trusted",
+      "n": 10000,
+      "us_per_doc": 5.67,
+      "vs_bson": 1.35
+    },
+    {
+      "shape": "wide",
+      "backend": "attrs",
+      "mode": "tracked",
+      "n": 10000,
+      "us_per_doc": 14.2,
+      "vs_bson": 3.38
+    },
+    {
+      "shape": "nested",
+      "backend": "driver",
+      "mode": "bson->dict",
+      "n": 10000,
+      "us_per_doc": 7.94,
+      "vs_bson": 1.0
+    },
+    {
+      "shape": "nested",
+      "backend": "msgspec",
+      "mode": "validated",
+      "n": 10000,
+      "us_per_doc": 4.3,
+      "vs_bson": 0.54
+    },
+    {
+      "shape": "nested",
+      "backend": "msgspec",
+      "mode": "trusted",
+      "n": 10000,
+      "us_per_doc": 5.98,
+      "vs_bson": 0.75
+    },
+    {
+      "shape": "nested",
+      "backend": "msgspec",
+      "mode": "tracked",
+      "n": 10000,
+      "us_per_doc": 19.52,
+      "vs_bson": 2.46
+    },
+    {
+      "shape": "nested",
+      "backend": "pydantic",
+      "mode": "validated",
+      "n": 10000,
+      "us_per_doc": 16.06,
+      "vs_bson": 2.02
+    },
+    {
+      "shape": "nested",
+      "backend": "pydantic",
+      "mode": "trusted",
+      "n": 10000,
+      "us_per_doc": 14.18,
+      "vs_bson": 1.78
+    },
+    {
+      "shape": "nested",
+      "backend": "pydantic",
+      "mode": "tracked",
+      "n": 10000,
+      "us_per_doc": 15.61,
+      "vs_bson": 1.96
+    },
+    {
+      "shape": "nested",
+      "backend": "attrs",
+      "mode": "validated",
+      "n": 10000,
+      "us_per_doc": 6.71,
+      "vs_bson": 0.84
+    },
+    {
+      "shape": "nested",
+      "backend": "attrs",
+      "mode": "trusted",
+      "n": 10000,
+      "us_per_doc": 6.5,
+      "vs_bson": 0.82
+    },
+    {
+      "shape": "nested",
+      "backend": "attrs",
+      "mode": "tracked",
+      "n": 10000,
+      "us_per_doc": 21.46,
+      "vs_bson": 2.7
+    }
+  ],
+  "notes": [
+    "'tracked' is decode plus the encode that builds the change-tracking snapshot.",
+    "'trusted' only differs for flat pydantic models; msgspec and attrs always convert."
+  ],
+  "conclusion": ""
+}

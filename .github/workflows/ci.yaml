@@ -1,8 +1,9 @@
 name: CI
 
 on:
+  # Branches are tested through their pull request; a push trigger for them too ran every job twice.
   push:
-    branches: [main, "v2/**"]
+    branches: [main]
   pull_request:
 
 permissions:
@@ -22,6 +23,7 @@ jobs:
       - run: make lint
       - run: make types
       - run: make build
+      - run: make docs
 
   test:
     runs-on: ubuntu-latest
@@ -32,7 +34,13 @@ jobs:
         mongo: ["8.0"]
         experimental: [false]
         include:
+          - python: "3.11"
+            mongo: "7.0"
+            experimental: false
           - python: "3.13"
+            mongo: "7.0"
+            experimental: false
+          - python: "3.15"
             mongo: "7.0"
             experimental: false
           - python: "3.14t"
@@ -53,3 +61,16 @@ jobs:
         run: |
           docker compose -f docker/compose.rs.yaml logs --tail 100
           docker compose -f docker/compose.sharded.yaml logs --tail 100
+
+  tracing:
+    # End to end: Sentry SDK -> mongospecs-web -> MongoDB, received by a Sentry-compatible server.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: docker compose -f docker/compose.rs.yaml up -d --wait
+      - run: docker compose -f docker/compose.rustrak.yaml up -d
+      - run: uv sync --all-packages --python 3.13
+      - name: Wait for rustrak
+        run: timeout 60 sh -c 'until curl -sf http://localhost:8787/health >/dev/null; do sleep 1; done'
+      - run: uv run mongospecs-bench trace

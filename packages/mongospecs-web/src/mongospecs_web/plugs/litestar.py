@@ -17,6 +17,7 @@ from litestar.config.app import AppConfig
 from litestar.plugins import InitPluginProtocol
 
 from mongospecs_web.api import Api, Route
+from mongospecs_web.errors import HTTPError
 from mongospecs_web.resource import Request, Response
 
 __all__ = ["MongospecsPlugin", "handlers"]
@@ -40,12 +41,17 @@ def _handler(api: Api, target: Route) -> t.Any:
 
     @route(path, http_method=[method], name=target.name, include_in_schema=False, status_code=200)
     async def handler(request: LitestarRequest[t.Any, t.Any, t.Any]) -> LitestarResponse[bytes]:
+        headers = {k.lower(): v for k, v in request.headers.items()}
+        try:
+            body = await api.read_body(headers, request.stream())
+        except HTTPError as exc:
+            return _to_response(Response.error(exc))
         neutral = Request(
             request.method,
             {k: str(v) for k, v in request.path_params.items()},
             list(request.query_params.multi_items()),
-            {k.lower(): v for k, v in request.headers.items()},
-            await request.body(),
+            headers,
+            body,
             None,
             request,
         )
@@ -54,10 +60,10 @@ def _handler(api: Api, target: Route) -> t.Any:
     return handler
 
 
-def handlers(api: Api, *, openapi: bool = True) -> list[t.Any]:
+def handlers(api: Api, *, openapi: bool | None = None) -> list[t.Any]:
     """Litestar route handlers for every operation of the API."""
     out = [_handler(api, target) for target in api._routes()]
-    if openapi:
+    if api.expose_openapi if openapi is None else openapi:
 
         @get(api.openapi_path, name="mongospecs_openapi", include_in_schema=False, sync_to_thread=False)
         def spec() -> dict[str, t.Any]:
@@ -70,7 +76,7 @@ def handlers(api: Api, *, openapi: bool = True) -> list[t.Any]:
 class MongospecsPlugin(InitPluginProtocol):
     """``Litestar(plugins=[MongospecsPlugin(api, registry=registry)])``"""
 
-    def __init__(self, api: Api, *, registry: t.Any = None, openapi: bool = True) -> None:
+    def __init__(self, api: Api, *, registry: t.Any = None, openapi: bool | None = None) -> None:
         self.api = api
         self.registry = registry
         self.openapi = openapi

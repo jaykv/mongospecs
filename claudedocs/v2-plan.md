@@ -865,9 +865,96 @@ Recorded per §7.1 rule 4. Each one names what changed and why; none invalidates
 | A11 | §4.7 | `Registry(on_command=...)` listeners: `logging_listener`, `otel_listener`, and `sentry_listener` (new, requested 2026-10-13). End-to-end trace verification against a Sentry-compatible server (rustrak) is node `E3` | Jay asked for Sentry SDK integration with rustrak for end-to-end tracing |
 | A12 | §5 | Versions: `mongospecs` 0.2.0, `mongospecs-web` 0.1.0 | Decided by Jay |
 | A13 | §7.2 | Spikes S3, S4, S6 and S8 were answered by the contract tests rather than by throwaway code: markers under deferred annotations (suite passes on 3.11, 3.13, 3.15), per-field validation on all three backends, snapshot tracking, discriminators and forward references | The tests are the durable form of the spike |
+| A14 | §4.4 | The `trusted` read option is removed | Measured (B1): the pydantic fast path was slower than validating (17µs vs 5µs per wide document) and the flag did nothing on msgspec and attrs |
+| A15 | §4.5 | A tracked document keeps the raw BSON bytes it was read from. The comparable snapshot (decode into the model, encode again) is built only when the document is saved | Measured (B2, B8): building the snapshot at load time made tracked reads about twice as slow as lean reads |
+| A16 | §4.5 | A field the stored document lacks is not written back just because the model has a default for it; loading a document never produces changes | Follows from A15. What Mongoose does with defaults applied at load time was not verified |
+| A17 | §4.4 | Documents read from the database are decoded leniently on strict backends (msgspec, attrs): an integer stored as a double is accepted. Input (creates, inserts from dicts, updates) stays strict | Data written by other clients is commonly numerically "loose"; pydantic is already lax |
+| A18 | §4.2 | `Policy(private=True)` also means not writable, unless `insert`/`update` are set explicitly | Secure default found while building the web layer |
+| A19 | §4.6 | Cursor pagination needs an index ending in `_id`; with an index on the sort key alone the server sorts in memory | Measured (B5): 20ms vs under 1ms for the first page of 50k documents |
+| A20 | §4.8 | `Resource(server_fields=...)` sets values on create outside the field policy | Needed by the reference application (the author of a review) |
+| A21 | §6 | The evidence track gained a production-shaped reference application ("storefront"), end-to-end tests that boot it as a real server process, and an HTTP load benchmark with a hand-written pymongo baseline (nodes E4-E6) | Requested by Jay 2026-10-13: real end-to-end, production-ready scenarios |
+| A22 | §6 | Workload B7 (HTTP per plug) is the `LOAD` workload: a real server process under load, with server CPU per request as the primary metric | Measuring plugs through an in-process test client, and later through httpx over TCP, measured the client |
+| A23 | §4.5 | An upsert gives the inserted document the model's non-null defaults through `$setOnInsert` | Otherwise a document created by upsert differs in shape from one created by `insert()` and queries on defaulted values miss it (Mongoose: `setDefaultsOnInsert`) |
+| A24 | §4.2 | Subclass discovery ignores stale class copies | `attrs.define` replaces a class with a slotted copy and the original lingers until collected; found by the free-threaded CI job |
+| A25 | §4.2 | The `Computed` marker became the `@computed` property decorator | A marker goes on an annotation; a computed value is a property and has none |
+| A26 | §4.6 | Atlas Search and vector search indexes are not in 0.2. `Index` covers ordinary, compound, text, geospatial, TTL, partial and collated indexes | They need Atlas (or a `mongot` deployment) to create and to test; nothing here could verify them. Declared out of scope rather than shipped untested |
+| A27 | §4.3 | A8 is superseded: deleting a loaded document checks its revision on hard deletes as well, and `delete(if_rev=)` / HTTP `If-Match` on DELETE are supported | Raised in review |
+| A28 | §4.8 | Web defaults changed after review: totals are opt-in per resource, offset pages are capped by `max_offset`, request reads get a 10s time limit when nothing else sets one, bodies are size-limited while being read on every plug, the row scope is part of the DELETE filter, `Api(openapi=False)` and `Resource(explicit_writes=True)` exist | Raised in review |
+| A29 | §4.5 | `bulk_save` writes are independent: successes are brought in sync in memory and the error lists the failures. `Query.update()` returns an int carrying `.matched` and `.modified`. Cursor pagination always fetches its sort keys. Cascades carry a visited set and work in chunks | Defects reproduced in review, each with a regression test |
+| A30 | §4.2 | A field whose default is `None` is not stored while it is `None` (the key is omitted; setting it to `None` unsets it) | Second review: a unique sparse index collided on stored nulls. Consequence: `exists` filters mean "has a value" |
+| A31 | §4.2 | Field names that shadow the `Document` API raise `ConfigurationError` (`meta.RESERVED_FIELD_NAMES`) | Second review: a field named `count` silently replaced `Model.count()` |
+| A32 | §4.4 | `registry.transaction()` inside a running transaction raises unless `independent=True`. A context variable is used to detect this only; sessions are still always passed explicitly | Second review: an inner transaction committed while the outer aborted |
+| A33 | §4.3 | Filter values are cast by one rule on all backends (exact type, else text that reads as the type). `find().on_invalid("raise" \| "skip" \| "raw")` | Second review |
+| A34 | §4.8 | `Policy(private=True)` is enforced on fields of embedded models at any depth: not serialised, a 422 when supplied, absent from schemas | Third review item A. PATCH replaces an embedded object whole, so a client that patches the parent object clears server-set private values inside it; documented, not changed |
+| A35 | §4.2 | `StoreNone` / `OmitNone` markers and `SpecConfig(none="omit" \| "store")`. Embedded models resolve the setting from their own markers, or from a `__spec__` if they declare one; they do not inherit the parent document's setting. A unique sparse index over a field that stores null is a `ConfigurationError`. No warning is raised for a partial filter on `$type: null` over an omitted field | Requested as the opt-out from A30. The embedded rule keeps one model's stored shape the same wherever it is embedded |
+| A36 | §4.3 | Cursor pagination handles documents without a value for a sort key (first ascending, last descending) and builds the cursor from stored values, not model defaults | Found while testing raw reads: such documents were skipped or ended the walk. Became common once None was no longer stored (A30) |
+| A37 | §4.8 | HTTP `PATCH` uses JSON Merge Patch semantics for embedded objects (per-key dotted `$set`/`$unset` in one atomic update); lists and dicts still replace whole. Nested keys are held to the embedded model's own `Policy`. An embedded object holding protected values cannot be nulled, and a list or dict of such objects cannot be replaced through `PATCH` (422). `Policy(insert=False)` is enforced on nested keys at create. Supersedes the note in A34 | Decision delegated by Jay. Options weighed: (a) document only, rejected because a client could clear private and read-only values by omitting them, which no documentation fixes; (c) per-field opt-in, rejected because the safe behaviour would be off by default; (d) reject any patch of an object with protected values, rejected because such objects would be unpatchable. (b) merge is what RFC 7396 specifies for objects, is atomic, and removes the hazard instead of fencing it; (d) is kept only where merge has no meaning (list items, null on the whole object). Cost: PATCH on an embedded object is now partial, a behaviour change for clients that relied on replacement; a merge into a missing object needs its required fields; model-level cross-field validators of the embedded model do not run on a merge, as they already do not for top-level PATCH |
+| A38 | §4.2 | BSON-only values in untyped fields (`Any`) serialise to JSON on all backends: ObjectId and UUID as strings, dates as ISO 8601, Decimal128 as a string, binary as base64, Int64 as a number, Timestamp as a date, Regex as its pattern | Reported: a 500 on pydantic for any ObjectId, and on msgspec/attrs for Binary, Timestamp, Regex and Int64 |
+| A39 | §4.8 | `Put` operation and `Resource(merge_patch=False)`. `PUT /{id}` replaces every field the client may update (sent value, or the default when left out; a required field must be sent) and leaves the rest as stored, in one atomic update; an embedded object holding protected values is replaced key by key the same way, one without them is replaced whole. It never creates. `Put` is not in the default `ops`. `merge_patch=False` makes `PATCH` replace embedded objects as before A37; nested keys the policy closes are still rejected | Requested by Jay as the opt-out from A37 and its limits (validators of the embedded model see one key at a time on a merge, a stored null needs the whole object, a backend without `supports_merge` gets a 422). The flag is on the resource, not the model: it describes an HTTP verb, model code is unaffected, and embedded models do not inherit settings (A35). Cost of opting out, accepted by whoever sets it: values the client cannot send are reset to defaults on replacement. `Put` is opt-in because guards are keyed by operation, so adding it to the defaults would expose an unguarded write on resources that guard `Patch` |
+| A40 | §4.4, §4.8 | Third review. Core: a single-field update on a pydantic model no longer fails a model-level validator that saw the other fields' defaults (the field's own validators still run); `insert_many` and `bulk_save` run document hooks; `page()` starts its count only after its arguments are validated. Web: request bodies are strict JSON (`NaN`, `Infinity` and over-deep nesting are a 400); `If-Match` on a model without a `Revision` is a 412; `If-None-Match` accepts lists, weak tags and `*`; the ASGI plug drops a request whose client disconnected mid-body; `Api(openapi=False)` is honoured by the FastAPI plug; guard and hook keys must name an operation; the concurrency limit is applied before authentication; a filter or sort key given twice is a 400 | Each was reproduced against the replica set first (`test_review_round3.py` in both packages). `insert_many` hooks deviate from Mongoose, where `insertMany` does not run `save` middleware: here the documents are in the caller's hands and a `before("insert")` hook that silently does not run loses data (a slug, a derived field). The hook calls are skipped when no hook is registered, so the bulk paths cost the same as before for models without hooks. Left as documented differences: trailing slash, `HEAD` and `OPTIONS` on framework plugs |
+| A41 | §4.2, §4.4 | Document writes are validated by default. `insert`, `save`, `insert_many` and `bulk_save` decode the document's own encoding with the backend's strict rules before sending it and raise `ValidationError` if it does not fit. `save` checks only when there is a change, and only the changed fields of a document loaded with a projection. Escape hatches: `validate=False` per call, `SpecConfig(validate_writes=False)` per model | Requested by Jay after the third review found that msgspec and attrs (no constructor or assignment checks) and pydantic (no assignment checks) let a wrongly typed value be stored, after which the document could not be loaded. Checking the encoded form means the test is exactly "can this be read back", is one code path for all three backends, and reuses the encoding the write needs anyway. Cost measured ad hoc at about 3 µs (msgspec) and 5 µs (pydantic) per seven-field document; the recorded B4 run predates it. The full suite (887 tests) passed with the check on, so no existing write was falsely refused |
 
 New node:
 
 | ID | Node | Needs | Check |
 |---|---|---|---|
 | E3 | End-to-end tracing: Sentry SDK in an app using `mongospecs-web`, sending to rustrak in Docker; one HTTP request yields one trace containing the request span and `Model.op` database spans | P1, K17 | A script asserts the trace arrived in rustrak with the expected spans |
+| E4 | Storefront reference application: auth, guards, row scope, transactional orders, soft delete, ETags, reverse relations, exactly-once change-stream projector, health check, graceful shutdown; runs on every plug and model backend | P1-P5, K6, R5 | The e2e suite below |
+| E5 | End-to-end tests over real HTTP against the storefront under uvicorn: customer journey on every plug, ordering on every backend, concurrent buyers never oversell, multi-item orders are atomic, projector resumes across restarts without double counting, in-flight requests finish on shutdown, orders stay consistent across a primary step-down | E4 | `uv run pytest bench/tests/test_e2e_storefront.py` passes; the stock invariant holds after each scenario |
+| E6 | HTTP load benchmark: mixed browse/detail/order traffic against the running storefront on every plug and backend, next to a hand-written pymongo + Starlette implementation of the same endpoints | E4, E1 | Results committed; the stock invariant holds after every run |
+
+Bugs the end-to-end tests found that the unit and contract suites had not: aggregation paths
+(`aggregate`, `union`, `graph`, backref counts) broke whenever a default time limit was configured;
+string ids assigned to reference fields were stored as strings on msgspec and attrs; unexpected
+server errors were not logged anywhere.
+
+### Decisions taken from the evidence (see `docs/benchmarks.md`, results `6dc837f`)
+
+| Node | Decision | Basis |
+|---|---|---|
+| R6 | `include(strategy="auto")` uses batched queries. `$lookup` stays available explicitly | `$lookup` never won clearly on a replica set (two runs disagreed at fan-out 100), was 2.5-3x slower when many parents share few targets, and 5-9x slower through mongos for small fan-outs |
+| D1 | No Rust in 0.2. The only candidate worth a native component is a BSON-to-model decoder for bulk reads, as a separate optional package behind `Codec.decode(bytes)` | BSON-to-dict is essentially all of the driver's time on bulk reads (10.1 us per nested document against 3.3 us for msgspec's dict-to-model step) but an estimated 10-20% of server CPU on request-sized reads. Needs Jay's call on whether bulk reads matter enough |
+| Open decision 4 | Reads validate; the `trusted` option is removed | Measured slower than validating on pydantic, no effect elsewhere |
+| Open decision 6 | Tracked stays the default read mode | 0-15% over lean and about 1.2 KB per document after the raw-BSON snapshot change |
+
+### Review of the pull requests (2026-10-13)
+
+A second session reviewed #6-#8 and reproduced five defects (duplicate pages with `select()`, a bare-id
+`Location` header, `bulk_save` leaving memory out of sync, `bulk_write` skipping cascades, an unhelpful
+error when saving a copy). All five are fixed with regression tests, along with an infinite recursion on
+cyclic cascades found while reproducing them. Its read-only findings on the web layer are addressed in A28.
+
+Known and not changed:
+
+- `registry._BINDINGS` and `tracking._states` are process-global. `Model.find()` resolves the registry a
+  model is bound to, so one model class cannot be bound to two open registries at once; code that needs
+  several registries or one registry per thread uses `registry.manager(Model)`. A task-scoped "current
+  registry" was suggested and is not built.
+- S7 (confirming every Mongoose parity row against its documentation) is done for 28 of 35 rows;
+  `docs/parity.md` marks the 7 that are still from memory (alias, `useDb`, per-query driver options,
+  `exists`/counts, subdocuments and maps, getters/setters, virtuals).
+
+### Performance review (2026-10-13): decisions
+
+Thirteen findings from a profiling review. Numbers are from workload B9, `bench/results/49a32a9`
+(before) and `bench/results/fb543de` (after).
+
+| # | Finding | Decision | Reason |
+|---|---|---|---|
+| 1 | Web reads build a model only to serialise it; private fields travel over the wire | Implemented: projection of the readable fields, serialise from the stored document when certain to be identical, model path otherwise (`mongospecs_web.fastread`) | Serialise alone 4.3 → 2.5 µs/doc; whole request under 10% because the driver dominates. Kept for the projection and because it is verified equal |
+| 2 | Refs handled twice on decode (dec_hook, then normalisation) | Not done | Changes the decode core of three backends for a gain of about 1 µs/doc; revisit if per-document CPU becomes the limit |
+| 3 | Encode is a Python walker; save rebuilds the snapshot through the model | Not done | Same reason; the model round trip is also what keeps a load from looking like an edit (A15/A16) |
+| 4 | `weakref.finalize` per tracked document | Implemented: one `weakref.ref` held on the state, guarded against id reuse | Cheap and contained; effect not visible in B9 |
+| 5 | Batched includes run one after another | Implemented: gathered outside a session | A session cannot run two operations at once, so inside a transaction they stay serial |
+| 6 | `per_parent_limit` applied after fetching every child | Implemented: `$sort` + `$group` with `$firstN` picks ids on the server | 23.0 → 1.5 ms CPU for 20 parents × 100 children |
+| 7 | Web DELETE is two round trips | Implemented: one conditional write unless the model has delete hooks or cascades | 2 → 1 commands |
+| 8 | `Query._clone` cost; `get` through `find().first()` | Clone implemented (slot copy). `find_one` fast path not done | `get` 248 → 218 µs is within noise; a second read path is not worth it |
+| 9 | Hard delete of a cascade target needs a transaction, so a replica set | Documented | A cascade that half-completes is worse than a clear requirement |
+| 10 | `total=True` is a full count per request | Documented; totals are already opt-in per resource | An estimate is wrong for any filtered listing; a cache belongs to the application |
+| 11 | Routing scans every route | Implemented: lookup by resource, then that resource's patterns | 19.1 → 1.3 µs at 255 routes |
+| 12 | No backpressure | Implemented `Api(max_concurrency=)` and 503 for `PoolTimeout`; pool defaults left to the driver and documented | Changing the driver's defaults silently would surprise; the guide says what to set |
+| 13 | Memory shape of pydantic documents; `all()` materialises | Documented | Inherent to the model library |
+
+Design-level options not taken: per-model compiled plans shared by decode and encode, lazy `Ref`
+materialisation, an explain-sampling listener, state on the instance for free-threading, a native
+decoder. None is needed by a measured workload yet.

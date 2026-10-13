@@ -1,0 +1,151 @@
+{
+  "meta": {
+    "git_sha": "6dc837f",
+    "git_dirty": false,
+    "timestamp": "2026-10-13T04:45:53+00:00",
+    "topology": "rs",
+    "quick": false,
+    "mongodb": "8.0.32",
+    "python": "3.13.5",
+    "free_threaded": false,
+    "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "cpus": 8,
+    "versions": {
+      "mongospecs": "0.2.0",
+      "pymongo": "4.18.3",
+      "msgspec": "0.22.0",
+      "pydantic": "2.14.1"
+    }
+  },
+  "workload": "B8",
+  "title": "Cost of change tracking",
+  "question": "What do tracked reads cost in time and memory over lean and raw reads, and what does a delta save send?",
+  "rows": [
+    {
+      "backend": "msgspec",
+      "mode": "raw()",
+      "n": 5000,
+      "median_ms": 41.42,
+      "vs_lean": 0.54,
+      "bytes_per_doc": 5263
+    },
+    {
+      "backend": "msgspec",
+      "mode": "lean()",
+      "n": 5000,
+      "median_ms": 76.11,
+      "vs_lean": 1.0,
+      "bytes_per_doc": 2398
+    },
+    {
+      "backend": "msgspec",
+      "mode": "tracked",
+      "n": 5000,
+      "median_ms": 63.1,
+      "vs_lean": 0.83,
+      "bytes_per_doc": 3625
+    },
+    {
+      "backend": "msgspec",
+      "mode": "save payload: full $set",
+      "n": 1,
+      "median_ms": "",
+      "vs_lean": "",
+      "bytes_per_doc": 659
+    },
+    {
+      "backend": "msgspec",
+      "mode": "save payload: delta",
+      "n": 1,
+      "median_ms": "",
+      "vs_lean": "",
+      "bytes_per_doc": 38
+    },
+    {
+      "backend": "pydantic",
+      "mode": "raw()",
+      "n": 5000,
+      "median_ms": 41.34,
+      "vs_lean": 0.34,
+      "bytes_per_doc": 5263
+    },
+    {
+      "backend": "pydantic",
+      "mode": "lean()",
+      "n": 5000,
+      "median_ms": 121.05,
+      "vs_lean": 1.0,
+      "bytes_per_doc": 7103
+    },
+    {
+      "backend": "pydantic",
+      "mode": "tracked",
+      "n": 5000,
+      "median_ms": 126.49,
+      "vs_lean": 1.04,
+      "bytes_per_doc": 8329
+    },
+    {
+      "backend": "pydantic",
+      "mode": "save payload: full $set",
+      "n": 1,
+      "median_ms": "",
+      "vs_lean": "",
+      "bytes_per_doc": 659
+    },
+    {
+      "backend": "pydantic",
+      "mode": "save payload: delta",
+      "n": 1,
+      "median_ms": "",
+      "vs_lean": "",
+      "bytes_per_doc": 38
+    },
+    {
+      "backend": "attrs",
+      "mode": "raw()",
+      "n": 5000,
+      "median_ms": 48.21,
+      "vs_lean": 0.57,
+      "bytes_per_doc": 5263
+    },
+    {
+      "backend": "attrs",
+      "mode": "lean()",
+      "n": 5000,
+      "median_ms": 84.78,
+      "vs_lean": 1.0,
+      "bytes_per_doc": 2543
+    },
+    {
+      "backend": "attrs",
+      "mode": "tracked",
+      "n": 5000,
+      "median_ms": 89.97,
+      "vs_lean": 1.06,
+      "bytes_per_doc": 3768
+    },
+    {
+      "backend": "attrs",
+      "mode": "save payload: full $set",
+      "n": 1,
+      "median_ms": "",
+      "vs_lean": "",
+      "bytes_per_doc": 659
+    },
+    {
+      "backend": "attrs",
+      "mode": "save payload: delta",
+      "n": 1,
+      "median_ms": "",
+      "vs_lean": "",
+      "bytes_per_doc": 38
+    }
+  ],
+  "notes": [
+    "1 tracked documents remained after the run (should be ~0).",
+    "bytes_per_doc for reads is Python heap per document held; for save payloads it is the BSON update size."
+  ],
+  "conclusion": ""
+}

@@ -29,7 +29,9 @@ quart = ["quart>=0.19"]
 all = ["starlette>=0.40", "fastapi>=0.115", "litestar>=2.12", "quart>=0.19"]
 
 [project.urls]
+Documentation = "https://jaykv.github.io/mongospecs/"
 Repository = "https://github.com/jaykv/mongospecs"
+Changelog = "https://github.com/jaykv/mongospecs/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mongospecs_web"]

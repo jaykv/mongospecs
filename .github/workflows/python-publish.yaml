@@ -42,5 +42,14 @@ jobs:
             mongospecs-v*) echo "package=mongospecs" >> "$GITHUB_OUTPUT" ;;
             *) echo "unrecognised release tag: $tag" >&2; exit 1 ;;
           esac
+      - name: The tag must be the version being published
+        run: |
+          package="${{ steps.pick.outputs.package }}"
+          declared="$(uv run --no-project python -c "import tomllib, sys; print(tomllib.load(open(sys.argv[1], 'rb'))['project']['version'])" "packages/$package/pyproject.toml")"
+          tagged="${GITHUB_REF_NAME#"$package"-v}"
+          if [ "$declared" != "$tagged" ]; then
+            echo "tag $GITHUB_REF_NAME says $tagged, but packages/$package/pyproject.toml says $declared" >&2
+            exit 1
+          fi
       - run: uv build --package ${{ steps.pick.outputs.package }}
       - uses: pypa/gh-action-pypi-publish@release/v1

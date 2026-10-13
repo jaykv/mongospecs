@@ -29,11 +29,9 @@ A rewrite. See [Migrating from 0.1.x](docs/migration.md) for the API map.
 - A single-field update on a pydantic model runs the field's validators and not the model-level
   ones, which could only see the other fields' defaults.
 
-## Unreleased
+## mongospecs-web 0.1.0 (2026-10-13)
 
-### mongospecs-web 0.1.0
-
-First release. Not published yet.
+First release.
 
 - Resources described as data and mounted on plain ASGI, Starlette, FastAPI, Litestar or Quart.
 - Field `Policy` drives the create, patch, put, read, filter and sort surface; guards and row

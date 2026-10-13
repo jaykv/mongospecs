@@ -135,6 +135,30 @@ async def b9(settings: Settings) -> Result:
                 await cpu_us(per_parent, calls // 4, repeats),
             )
 
+            # The same 100 stored documents turned into the response rows, with the database out
+            # of the picture: through the model, and straight from the stored document.
+            view = api.resources[0].view
+            meta = view.meta
+            stored = [d async for d in m.Product.collection().find({}, limit=100)]
+            stored = [dict(d) for d in stored]
+            plan = getattr(view, "fast", None)
+            for label, fn in (
+                ("serialise 100: decode + model", lambda: [view.serialize(meta.decode(d)) for d in stored]),
+                (
+                    "serialise 100: stored document",
+                    (lambda: [plan.serialize(d) for d in stored]) if plan else None,
+                ),
+            ):
+                if fn is None:
+                    continue
+                best = float("inf")
+                for _ in range(repeats * 4):
+                    start = time.process_time()
+                    for _ in range(20):
+                        fn()
+                    best = min(best, (time.process_time() - start) / 20)
+                add(label, "cpu us/doc", best * 1e6, 100)
+
             def count(name: str, *paths: str) -> None:
                 add(name, "commands", float(len(events.names)))
                 result.rows[-1]["detail"] = " ".join(events.names)

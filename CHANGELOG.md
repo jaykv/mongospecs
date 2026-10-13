@@ -4,9 +4,7 @@ Two packages are released from this repository; each entry says which one it is 
 follow semantic versioning, and while a package is below 1.0 a minor release may break
 compatibility. Breaking changes are marked **Breaking**.
 
-## Unreleased
-
-### mongospecs 0.2.0
+## mongospecs 0.2.0 (2026-10-13)
 
 A rewrite. See [Migrating from 0.1.x](docs/migration.md) for the API map.
 
@@ -31,9 +29,11 @@ A rewrite. See [Migrating from 0.1.x](docs/migration.md) for the API map.
 - A single-field update on a pydantic model runs the field's validators and not the model-level
   ones, which could only see the other fields' defaults.
 
+## Unreleased
+
 ### mongospecs-web 0.1.0
 
-First release.
+First release. Not published yet.
 
 - Resources described as data and mounted on plain ASGI, Starlette, FastAPI, Litestar or Quart.
 - Field `Policy` drives the create, patch, put, read, filter and sort surface; guards and row

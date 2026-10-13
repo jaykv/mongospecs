@@ -1,26 +1,33 @@
 name: CI
 
-# Changes that touch only documentation do not start this pipeline; docs.yaml checks those with
-# one job (it builds the site and runs the examples the pages contain).
+# This pipeline runs only when something it tests changes: code, tests, dependencies, or the
+# pipeline itself. Documentation is checked by docs.yaml with one job; changes to anything else
+# (other workflows, repository files) start nothing here.
 on:
   # Branches are tested through their pull request; a push trigger for them too ran every job twice.
   push:
     branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "claudedocs/**"
-      - "mkdocs.yaml"
-      - "LICENSE"
-      - ".github/workflows/docs.yaml"
+    paths:
+      - "packages/**"
+      - "bench/**"
+      - "examples/**"
+      - "docker/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "Makefile"
+      - ".github/workflows/ci.yaml"
+      - "!**.md"  # a README inside a package is documentation
   pull_request:
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "claudedocs/**"
-      - "mkdocs.yaml"
-      - "LICENSE"
-      - ".github/workflows/docs.yaml"
+    paths:
+      - "packages/**"
+      - "bench/**"
+      - "examples/**"
+      - "docker/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "Makefile"
+      - ".github/workflows/ci.yaml"
+      - "!**.md"  # a README inside a package is documentation
 
 permissions:
   contents: read

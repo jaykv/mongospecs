@@ -1,8 +1,7 @@
 # Changelog
 
-Two packages are released from this repository, `mongospecs` and `mongospecs-web`. They always
-carry the same version and are released together; each entry says which one it is about. Versions
-follow semantic versioning, and while a package is below 1.0 a minor release may break
+Two packages are released from this repository, `mongospecs` and `mongospecs-web`, each with its
+own version; each entry says which one it is about. Versions follow semantic versioning, and while a package is below 1.0 a minor release may break
 compatibility. Breaking changes are marked **Breaking**.
 
 ## mongospecs 0.2.0 (2026-10-13)
@@ -32,7 +31,7 @@ A rewrite. See [Migrating from 0.1.x](docs/migration.md) for the API map.
 
 ## mongospecs-web 0.2.0 (2026-10-13)
 
-First release. It starts at 0.2.0 to match the `mongospecs` release it goes with.
+First release. It starts at 0.2.0 alongside `mongospecs` 0.2.0; later versions are independent.
 
 - Resources described as data and mounted on plain ASGI, Starlette, FastAPI, Litestar or Quart.
 - Field `Policy` drives the create, patch, put, read, filter and sort surface; guards and row

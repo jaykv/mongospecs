@@ -46,10 +46,11 @@ A plug only translates requests and responses. Prove it with the contract suite:
 
 ## Releasing
 
-The two packages always carry the same version and are released together: bump both
-`pyproject.toml` files (and `mongospecs_web.__version__`), then publish `mongospecs` first,
-because `mongospecs-web` depends on it.
+The two packages are versioned and released independently (both happened to start v2 at 0.2.0).
+Bump the version in the package's `pyproject.toml` (and `mongospecs_web.__version__` for the web
+package). When a web release needs a newer `mongospecs`, raise its requirement and publish
+`mongospecs` first.
 
-Each package is released by publishing a GitHub release whose tag names it: `mongospecs-v0.2.0`,
-then `mongospecs-web-v0.2.0`. The tag must match the version in that package's `pyproject.toml`;
+Each package is released by publishing a GitHub release whose tag names it: `mongospecs-v0.2.0`
+or `mongospecs-web-v0.2.0`. The tag must match the version in that package's `pyproject.toml`;
 the publish workflow checks this and runs the full suite before uploading.

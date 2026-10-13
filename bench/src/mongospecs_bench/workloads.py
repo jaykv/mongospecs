@@ -552,6 +552,12 @@ async def b8(settings: Settings) -> Result:
     return result
 
 
+async def _b9(settings: Settings) -> Result:
+    from mongospecs_bench.hotpaths import b9
+
+    return await b9(settings)
+
+
 WORKLOADS: dict[str, Workload] = {
     "B1": b1,
     "B2": b2,
@@ -560,4 +566,5 @@ WORKLOADS: dict[str, Workload] = {
     "B5": b5,
     "B6": b6,
     "B8": b8,
+    "B9": _b9,
 }

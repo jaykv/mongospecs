@@ -16,15 +16,21 @@ from starlette.requests import Request as StarletteRequest
 from starlette.responses import Response as StarletteResponse
 
 from mongospecs_web.api import Api, Route
+from mongospecs_web.errors import HTTPError
 from mongospecs_web.openapi import build_openapi, operation_object
 from mongospecs_web.plugs.starlette import lifespan, to_request, to_response
+from mongospecs_web.resource import Response
 
 __all__ = ["lifespan", "mount", "router"]
 
 
 def _endpoint(api: Api, route: Route) -> t.Callable[..., t.Awaitable[StarletteResponse]]:
     async def endpoint(request: StarletteRequest) -> StarletteResponse:
-        return to_response(await api.run(route, await to_request(request)))
+        try:
+            neutral = await to_request(api, request)
+        except HTTPError as exc:
+            return to_response(Response.error(exc))
+        return to_response(await api.run(route, neutral))
 
     return endpoint
 

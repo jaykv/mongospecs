@@ -211,9 +211,13 @@ class Resource(t.Generic[T]):
         page: Pagination | None = None,
         tags: t.Sequence[str] | None = None,
         server_fields: t.Callable[[Ctx[T]], t.Any] | None = None,
+        explicit_writes: bool = False,
     ) -> None:
         self.model = model
-        self.view: View = view_of(model)
+        self.view: View = view_of(model, explicit_writes=explicit_writes)
+        """With ``explicit_writes=True`` a field is writable only if its ``Policy`` says so
+        (``Policy(insert=True)``, ``Policy(update=True)``); by default ordinary fields are
+        writable unless marked otherwise."""
         self.name = name or self.view.meta.collection
         self.backend: ResourceBackend[T] = backend if backend is not None else MongoBackend(model)
         self.scope_fn = scope
@@ -551,7 +555,8 @@ class Resource(t.Generic[T]):
 
     def _delete_op(self) -> Operation:
         async def handler(ctx: Ctx[T]) -> None:
-            await self.backend.delete(ctx.id, scope=await ctx.scope())
+            if_rev = _if_match(ctx.request.headers.get("if-match"), self.view.revision is not None)
+            await self.backend.delete(ctx.id, scope=await ctx.scope(), if_rev=if_rev)
 
         return Operation(Delete, "DELETE", "/{id}", handler, Delete, f"Delete one of {self.name}", 204)
 

@@ -7,6 +7,7 @@ import typing as t
 from urllib.parse import parse_qsl
 
 from mongospecs_web.api import Api
+from mongospecs_web.errors import HTTPError
 from mongospecs_web.resource import Response
 
 __all__ = ["AsgiApp"]
@@ -59,21 +60,27 @@ class AsgiApp:
         path: str = scope["path"]
         if root and path.startswith(root):
             path = path[len(root) :] or "/"
-        if method == "GET" and path == self.api.openapi_path:
+        if method == "GET" and path == self.api.openapi_path and self.api.expose_openapi:
             if self._openapi is None:
                 self._openapi = json.dumps(self.api.openapi(), separators=(",", ":")).encode()
             await _send(send, Response(200, self._openapi, {}))
             return
-        body = b""
-        limit = self.api.max_body
-        while True:
-            message = await receive()
-            if message["type"] == "http.disconnect":
-                return
-            body += message.get("body", b"")
-            if len(body) > limit or not message.get("more_body"):
-                break
         headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+
+        async def chunks() -> t.AsyncIterator[bytes]:
+            while True:
+                message = await receive()
+                if message["type"] == "http.disconnect":
+                    return
+                yield message.get("body", b"")
+                if not message.get("more_body"):
+                    return
+
+        try:
+            body = await self.api.read_body(headers, chunks())
+        except HTTPError as exc:
+            await _send(send, Response.error(exc))
+            return
         query = parse_qsl(scope.get("query_string", b"").decode("latin-1"), keep_blank_values=True)
         response = await self.api.handle(method, path, query=query, headers=headers, body=body, raw=scope)
         await _send(send, response)

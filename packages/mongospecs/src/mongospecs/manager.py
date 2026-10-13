@@ -354,7 +354,21 @@ class Manager(t.Generic[T]):
             )
         raise DocumentNotFound(f"{self.model.__name__} {flt['_id']!r} does not exist")
 
-    async def delete_document(self, doc: T, *, session: t.Any = None, hard: bool = False) -> None:
+    async def delete_document(
+        self,
+        doc: T,
+        *,
+        session: t.Any = None,
+        hard: bool = False,
+        condition: t.Mapping[str, t.Any] | None = None,
+        if_rev: int | None = None,
+    ) -> None:
+        """Delete a document (softly when the model has a ``DeletedAt`` field, unless ``hard``).
+
+        ``condition`` is an extra filter the document must still satisfy at the moment of the
+        delete (a row scope, for instance). With a ``Revision`` field the delete also requires
+        the revision that was loaded, or ``if_rev`` when given.
+        """
         any_doc = t.cast(t.Any, doc)
         if any_doc.id is None:
             raise QueryError("cannot delete a document that has no id")
@@ -363,7 +377,15 @@ class Manager(t.Generic[T]):
         ctx = self.ctx("delete", session, doc=doc, snapshot=snapshot)
         await self._hooks("before", ("delete",), ctx, doc)
         flt: dict[str, t.Any] = {"_id": snapshot["_id"], **self._shard_filter(snapshot)}
+        if if_rev is not None:
+            ctx.extra["if_rev"] = if_rev
         soft = None if hard else self._soft_delete(ctx, flt)
+        revision = next((f for f in self.meta.fields.values() if f.has(Revision)), None)
+        if revision is not None and (state is not None or if_rev is not None):
+            expected = if_rev if if_rev is not None else snapshot.get(revision.stored)
+            flt[revision.stored] = {"$in": [0, None]} if not expected else expected
+        if condition:
+            flt = and_filters(flt, condition)
 
         async def run(s: t.Any) -> None:
             if isinstance(s, Tx):

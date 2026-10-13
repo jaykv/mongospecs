@@ -3,49 +3,14 @@
 import httpx
 import pytest
 
-from mongospecs_web.testing import contract_api, reference_transcript, run_contract
+from mongospecs_web.testing import PLUGS, contract_api, mount_on, reference_transcript, run_contract
 
 BACKENDS = ("msgspec", "pydantic", "attrs")
-PLUGS = ("asgi", "starlette", "fastapi", "litestar", "quart")
-
-
-def build_app(plug, api):
-    if plug == "asgi":
-        return api.asgi()
-    if plug == "starlette":
-        from starlette.applications import Starlette
-
-        from mongospecs_web.plugs.starlette import routes
-
-        return Starlette(routes=routes(api))
-    if plug == "fastapi":
-        from fastapi import FastAPI
-
-        from mongospecs_web.plugs.fastapi import mount
-
-        app = FastAPI(openapi_url="/api/openapi.json")
-        mount(app, api)
-        return app
-    if plug == "litestar":
-        from litestar import Litestar
-
-        from mongospecs_web.plugs.litestar import MongospecsPlugin
-
-        return Litestar(plugins=[MongospecsPlugin(api)], openapi_config=None)
-    if plug == "quart":
-        from quart import Quart
-
-        from mongospecs_web.plugs.quart import init_app
-
-        app = Quart("contract")
-        init_app(app, api)
-        return app
-    raise AssertionError(plug)
 
 
 async def transcript_for(plug, backend):
     api = contract_api(backend)
-    app = build_app(plug, api)
+    app = mount_on(plug, api)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://contract"
     ) as client:
@@ -116,6 +81,8 @@ async def test_reference_transcript_is_what_the_api_should_do(backend, reference
         "offset page 1": 200,
         "offset page 2 with total": 200,
         "cursor on offset resource": 400,
+        "offset page too deep": 400,
+        "offset total": 200,
         "method not allowed": 405,
         "patch needs login": 401,
         "patch": 200,
@@ -135,6 +102,7 @@ async def test_reference_transcript_is_what_the_api_should_do(backend, reference
         "custom collection op": 200,
         "delete needs login": 401,
         "delete forbidden for non-admin": 403,
+        "delete stale revision": 412,
         "delete": 204,
         "delete again is 404": 404,
         "list after delete": 200,

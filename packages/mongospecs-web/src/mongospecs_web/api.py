@@ -52,6 +52,7 @@ class Api:
         version: str = "1.0.0",
         authenticate: Authenticate | None = None,
         max_body: int = 1_048_576,
+        openapi: bool = True,
     ) -> None:
         self.resources: tuple[Resource[t.Any], ...] = resources
         self.prefix = "/" + prefix.strip("/") if prefix.strip("/") else ""
@@ -59,6 +60,9 @@ class Api:
         self.version = version
         self.authenticate = authenticate
         self.max_body = max_body
+        self.expose_openapi = openapi
+        """Serve ``<prefix>/openapi.json``. Turn it off to keep the API description private;
+        ``api.openapi()`` still builds it for you to serve behind your own authentication."""
         names = [r.name for r in resources]
         if len(set(names)) != len(names):
             raise ValueError(f"resource names must be unique, got {names}")
@@ -80,6 +84,29 @@ class Api:
     @property
     def openapi_path(self) -> str:
         return f"{self.prefix}/openapi.json"
+
+    async def read_body(self, headers: t.Mapping[str, str], chunks: t.AsyncIterable[bytes]) -> bytes:
+        """Read a request body without ever holding more than ``max_body`` bytes.
+
+        Raises :class:`PayloadTooLarge` as soon as the declared or the actual size passes the
+        limit, instead of buffering an oversized body first.
+        """
+        declared = headers.get("content-length")
+        if declared is not None and declared.isdigit() and int(declared) > self.max_body:
+            raise PayloadTooLarge(f"The request body may be at most {self.max_body} bytes.")
+        body = bytearray()
+        async for chunk in chunks:
+            body += chunk
+            if len(body) > self.max_body:
+                raise PayloadTooLarge(f"The request body may be at most {self.max_body} bytes.")
+        return bytes(body)
+
+    def allowed_methods(self, path: str) -> list[str]:
+        """Methods the routes matching ``path`` accept (empty when no route matches)."""
+        methods = {route.method for route in self._routes() if route.pattern.match(path)}
+        if "GET" in methods:
+            methods.add("HEAD")
+        return sorted(methods | {"OPTIONS"}) if methods else []
 
     def match(self, method: str, path: str) -> tuple[Route, dict[str, str]]:
         """Find the route for a request, or raise 404 / 405."""
@@ -139,13 +166,22 @@ class Api:
         raw: t.Any = None,
     ) -> Response:
         """Route and run a request given as plain values. Used by the ASGI plug and handy in tests."""
+        method = method.upper()
+        if method == "OPTIONS":
+            allowed = self.allowed_methods(path)
+            if not allowed:
+                return Response.error(NotFound("No such route."))
+            return Response(204, b"", {"allow": ", ".join(allowed)})
         try:
-            route, params = self.match(method, path)
+            route, params = self.match("GET" if method == "HEAD" else method, path)
         except HTTPError as exc:
             return Response.error(exc)
-        return await self.run(
-            route, Request(method.upper(), params, query or [], headers or {}, body, None, raw)
+        response = await self.run(
+            route, Request(route.method, params, query or [], headers or {}, body, None, raw)
         )
+        if method == "HEAD":
+            response.body = b""  # same status and headers as GET, no body
+        return response
 
     def openapi(self) -> dict[str, t.Any]:
         from mongospecs_web.openapi import build_openapi

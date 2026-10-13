@@ -231,9 +231,13 @@ class Document:
         """Insert a new document, or send only the fields that changed since it was loaded."""
         return t.cast(T, await self._own_manager().save(self, session=session))
 
-    async def delete(self, *, session: t.Any = None, hard: bool = False) -> None:
-        """Delete this document (a soft delete when the model has a ``DeletedAt`` field, unless ``hard``)."""
-        await self._own_manager().delete_document(self, session=session, hard=hard)
+    async def delete(self, *, session: t.Any = None, hard: bool = False, if_rev: int | None = None) -> None:
+        """Delete this document (a soft delete when the model has a ``DeletedAt`` field, unless ``hard``).
+
+        With a ``Revision`` field the delete fails with ``StaleDocumentError`` if the document
+        changed since it was loaded (or since revision ``if_rev``).
+        """
+        await self._own_manager().delete_document(self, session=session, hard=hard, if_rev=if_rev)
 
     async def reload(self: T, *, session: t.Any = None) -> T:
         """Refresh this document in place from the database."""

@@ -24,8 +24,9 @@ _MANAGED = (CreatedAt, UpdatedAt, DeletedAt, Revision)
 class View:
     """What of a model is readable, writable, filterable and sortable from outside."""
 
-    def __init__(self, model: type) -> None:
+    def __init__(self, model: type, *, explicit_writes: bool = False) -> None:
         self.model = model
+        self.explicit_writes = explicit_writes
         self.meta: ModelMeta = meta_of(model)
         fields = self.meta.fields
         managed = {f.name for f in fields.values() if any(f.has(m) for m in _MANAGED)}
@@ -36,13 +37,19 @@ class View:
         writable = frozenset(
             f.name for f in fields.values() if f.name != "id" and f.name not in managed and not f.transient
         )
+
+        def may(flag: bool | None, default: bool) -> bool:
+            # explicit mode: only what the policy turns on; otherwise the policy's own default
+            return flag is True if explicit_writes else default
+
         self.insertable: frozenset[str] = frozenset(
-            f.name
-            for f in fields.values()
-            if f.policy.can_insert and f.name != "id" and f.name not in managed and not f.transient
+            name for name in writable if may(fields[name].policy.insert, fields[name].policy.can_insert)
         )
         self.updatable: frozenset[str] = frozenset(
-            name for name in writable if fields[name].policy.can_update and not fields[name].has(Immutable)
+            name
+            for name in writable
+            if may(fields[name].policy.update, fields[name].policy.can_update)
+            and not fields[name].has(Immutable)
         )
         self.filterable: dict[str, tuple[str, ...]] = {
             f.name: f.policy.filter_ops
@@ -179,11 +186,12 @@ def _embed(value: t.Any, encoded: t.Any, include: t.Collection[str]) -> t.Any:
     return one(value, encoded)
 
 
-_VIEWS: weakref.WeakKeyDictionary[type, View] = weakref.WeakKeyDictionary()
+_VIEWS: weakref.WeakKeyDictionary[type, dict[bool, View]] = weakref.WeakKeyDictionary()
 
 
-def view_of(model: type) -> View:
-    view = _VIEWS.get(model)
+def view_of(model: type, *, explicit_writes: bool = False) -> View:
+    views = _VIEWS.setdefault(model, {})
+    view = views.get(explicit_writes)
     if view is None:
-        view = _VIEWS[model] = View(model)
+        view = views[explicit_writes] = View(model, explicit_writes=explicit_writes)
     return view

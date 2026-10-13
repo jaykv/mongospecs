@@ -38,11 +38,11 @@ from mongospecs.expr import compile_filter
 from mongospecs_web.api import Api
 from mongospecs_web.backend import ListQuery
 from mongospecs_web.errors import Unauthorized
-from mongospecs_web.filters import Offset
+from mongospecs_web.filters import Cursor, Offset
 from mongospecs_web.policy import view_of
 from mongospecs_web.resource import Create, Ctx, Delete, Get, List, Patch, Request, Resource
 
-__all__ = ["FakeBackend", "contract_api", "reference_transcript", "run_contract"]
+__all__ = ["PLUGS", "FakeBackend", "contract_api", "mount_on", "reference_transcript", "run_contract"]
 
 T = t.TypeVar("T")
 
@@ -189,10 +189,13 @@ class FakeBackend(t.Generic[T]):
                 setattr(doc, revision, getattr(doc, revision) + 1)
         return doc
 
-    async def delete(self, id: t.Any, *, scope: t.Any) -> None:
+    async def delete(self, id: t.Any, *, scope: t.Any, if_rev: int | None = None) -> None:
         doc = self._find(id, scope)
         if doc is None:
             raise DocumentNotFound("not found")
+        revision = self.view.revision
+        if revision is not None and if_rev is not None and getattr(doc, revision) != if_rev:
+            raise StaleDocumentError("stale")
         del self.docs[t.cast(t.Any, doc).id]
 
 
@@ -301,6 +304,7 @@ def contract_api(backend: str = "msgspec") -> Api:
         model,
         backend=store,
         ops=[List, Get, Create, Patch, Delete],
+        page=Cursor(total=True),
         scope=own_rows,
         guards={Create: require_login, Patch: require_login, Delete: [require_login, admin_only]},
     )
@@ -326,7 +330,11 @@ def contract_api(backend: str = "msgspec") -> Api:
         return {"count": len(page.items), "stock": sum(d.stock for d in page.items)}
 
     pages: Resource[t.Any] = Resource(
-        model, name="widget-pages", backend=store, ops=[List], page=Offset(default=2, max=3, total=True)
+        model,
+        name="widget-pages",
+        backend=store,
+        ops=[List],
+        page=Offset(default=2, max=3, total=True, max_offset=8),
     )
     return Api(widgets, pages, prefix="/api", title="Contract", version="1.0.0", authenticate=_authenticate)
 
@@ -470,6 +478,8 @@ async def run_contract(client: t.Any, api: Api | None = None) -> Transcript:
     await call("GET", "/widget-pages?sort=name", label="offset page 1")
     await call("GET", "/widget-pages?sort=name&page=2&total=true", label="offset page 2 with total")
     await call("GET", "/widget-pages?after=x", label="cursor on offset resource")
+    await call("GET", "/widget-pages?page=6", label="offset page too deep")
+    await call("GET", "/widget-pages?page=1&total=true", label="offset total")
     await call("POST", "/widget-pages", label="method not allowed", json={})
 
     # -- patch --------------------------------------------------------------------
@@ -527,7 +537,10 @@ async def run_contract(client: t.Any, api: Api | None = None) -> Transcript:
     # -- delete -----------------------------------------------------------------------
     await call("DELETE", f"/widgets/{second}", label="delete needs login")
     await call("DELETE", f"/widgets/{second}", label="delete forbidden for non-admin", headers=bob)
-    await call("DELETE", f"/widgets/{second}", label="delete", headers=root)
+    await call(
+        "DELETE", f"/widgets/{second}", label="delete stale revision", headers={**root, "if-match": '"7"'}
+    )
+    await call("DELETE", f"/widgets/{second}", label="delete", headers={**root, "if-match": '"0"'})
     await call("DELETE", f"/widgets/{second}", label="delete again is 404", headers=root)
     await call("GET", "/widgets?sort=name", label="list after delete", headers=root)
 
@@ -551,3 +564,41 @@ async def reference_transcript(backend: str = "msgspec") -> Transcript:
         transport=httpx.ASGITransport(app=api.asgi()), base_url="http://contract"
     ) as client:
         return await run_contract(client, api)
+
+
+PLUGS = ("asgi", "starlette", "fastapi", "litestar", "quart")
+
+
+def mount_on(plug: str, api: Api) -> t.Any:
+    """An ASGI application serving ``api`` through one of the built-in plugs."""
+    if plug == "asgi":
+        return api.asgi()
+    if plug == "starlette":
+        from starlette.applications import Starlette
+
+        from mongospecs_web.plugs.starlette import routes
+
+        return Starlette(routes=routes(api))
+    if plug == "fastapi":
+        from fastapi import FastAPI
+
+        from mongospecs_web.plugs.fastapi import mount
+
+        fastapi_app = FastAPI(openapi_url=api.openapi_path)
+        mount(fastapi_app, api)
+        return fastapi_app
+    if plug == "litestar":
+        from litestar import Litestar
+
+        from mongospecs_web.plugs.litestar import MongospecsPlugin
+
+        return Litestar(plugins=[MongospecsPlugin(api)], openapi_config=None)
+    if plug == "quart":
+        from quart import Quart
+
+        from mongospecs_web.plugs.quart import init_app
+
+        quart_app = Quart(__name__)
+        init_app(quart_app, api)
+        return quart_app
+    raise ValueError(f"unknown plug {plug!r}; expected one of {PLUGS}")

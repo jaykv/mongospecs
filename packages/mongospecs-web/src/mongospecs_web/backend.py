@@ -9,7 +9,7 @@ from __future__ import annotations
 import typing as t
 from dataclasses import dataclass, field
 
-from mongospecs import DocumentNotFound, Page, Q, QueryError, meta_of
+from mongospecs import DocumentNotFound, Page, Q, QueryError, StaleDocumentError, meta_of
 from mongospecs.expr import Condition, Expr, Field
 
 __all__ = ["OPERATORS", "Filter", "ListQuery", "MongoBackend", "ResourceBackend"]
@@ -75,16 +75,25 @@ class ResourceBackend(t.Protocol[T]):
         self, id: t.Any, data: dict[str, t.Any], *, scope: t.Any, if_rev: int | None = None
     ) -> T: ...
 
-    async def delete(self, id: t.Any, *, scope: t.Any) -> None: ...
+    async def delete(self, id: t.Any, *, scope: t.Any, if_rev: int | None = None) -> None: ...
 
 
 class MongoBackend(t.Generic[T]):
     """``ResourceBackend`` over a mongospecs model (or a manager from ``Model.using(...)``)."""
 
-    def __init__(self, model: type[T], manager: t.Any = None) -> None:
+    def __init__(self, model: type[T], manager: t.Any = None, *, max_time_ms: int | None = 10_000) -> None:
         self.model = model
         self._manager = manager
         self.meta = meta_of(model)
+        self.max_time_ms = max_time_ms
+        """Time limit for reads made on behalf of a request, used when neither the registry
+        nor the model sets one. A request should not be able to run a query without bound."""
+
+    def _bounded(self, query: t.Any) -> t.Any:
+        manager = self.manager
+        if self.max_time_ms is None or manager.registry.max_time_ms or manager.meta.config.max_time_ms:
+            return query
+        return query.options(max_time_ms=self.max_time_ms)
 
     @property
     def manager(self) -> t.Any:
@@ -104,6 +113,7 @@ class MongoBackend(t.Generic[T]):
         query = self._by_id(id, scope)
         if query is None:
             return None
+        query = self._bounded(query)
         if read_only:
             query = query.lean()  # nothing will be saved: skip change tracking
         for path in include:
@@ -111,7 +121,7 @@ class MongoBackend(t.Generic[T]):
         return t.cast("T | None", await query.first())
 
     async def list(self, query: ListQuery, *, scope: t.Any) -> Page[T]:
-        q = self.manager.find(*(f.to_expr() for f in query.filters)).lean()  # listings are read-only
+        q = self._bounded(self.manager.find(*(f.to_expr() for f in query.filters))).lean()  # read-only
         if scope is not None:
             q = q.filter(scope)
         if query.sort:
@@ -141,9 +151,19 @@ class MongoBackend(t.Generic[T]):
         target = trusted(query._user_filter())
         return t.cast(T, await self.manager.update(target, if_rev=if_rev, **data))
 
-    async def delete(self, id: t.Any, *, scope: t.Any) -> None:
+    async def delete(self, id: t.Any, *, scope: t.Any, if_rev: int | None = None) -> None:
         query = self._by_id(id, scope)
         doc = await query.first() if query is not None else None
         if doc is None:
             raise DocumentNotFound(f"{self.model.__name__} {id!r} does not exist")
-        await self.manager.delete_document(doc)
+        # The document is loaded so that hooks, soft delete and cascades run. The scope is
+        # then also part of the delete's own filter, so it holds at the moment of the write.
+        condition = self.manager.compile(scope) if scope is not None else None
+        try:
+            await self.manager.delete_document(doc, condition=condition, if_rev=if_rev)
+        except StaleDocumentError:
+            if if_rev is not None:
+                raise
+            if scope is not None and not await self._by_id(id, scope).exists():
+                raise DocumentNotFound(f"{self.model.__name__} {id!r} does not exist") from None
+            raise

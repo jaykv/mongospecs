@@ -40,8 +40,12 @@ _FALSE = frozenset({"false", "0", "no"})
 class Pagination:
     default: int = 20
     max: int = 100
-    total: bool = True
-    """Whether clients may ask for a total count with ``?total=true``."""
+    total: bool = False
+    """Whether clients may ask for a total count with ``?total=true``. Off by default: a
+    count is a second query over every match, which a client should not get for free."""
+    max_offset: int = 10_000
+    """Offset pagination only: how many documents a page may skip. Deep offsets make the
+    server walk and discard everything before them; use cursors beyond this."""
     kind: t.ClassVar[str] = "cursor"
 
 
@@ -122,6 +126,10 @@ def parse_list_query(
         if after is not None:
             raise BadRequest("this resource uses page numbers; use page= instead of after=")
         number = _int(grouped["page"][-1], "page") if "page" in grouped else 1
+        if (number - 1) * size > pagination.max_offset:
+            raise BadRequest(
+                f"page {number} is too deep: at most {pagination.max_offset} results can be skipped"
+            )
     elif "page" in grouped:
         raise BadRequest("this resource uses cursors; use after= instead of page=")
     total = _bool(grouped["total"][-1], "total") if "total" in grouped else False

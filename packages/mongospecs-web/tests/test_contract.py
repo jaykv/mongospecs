@@ -148,7 +148,7 @@ async def test_reference_transcript_is_what_the_api_should_do(backend, reference
         return [w["name"] for w in got[label]["body"]["data"]]
 
     created = got["create"]
-    assert created["headers"]["location"] == f"{1:024x}" and created["headers"]["etag"] == '"0"'
+    assert created["headers"]["location"] == f"/api/widgets/{1:024x}" and created["headers"]["etag"] == '"0"'
     assert created["body"]["data"] == {
         "id": f"{1:024x}",
         "name": "anvil",

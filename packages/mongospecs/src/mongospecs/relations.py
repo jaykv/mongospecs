@@ -420,24 +420,32 @@ def cascade_rules(manager: Manager[t.Any]) -> list[CascadeRule]:
 
 
 async def apply_cascades(
-    manager: Manager[t.Any], rules: list[CascadeRule], ids: list[t.Any], session: t.Any
+    manager: Manager[t.Any], rules: list[CascadeRule], ids: list[t.Any], session: t.Any, seen: set[t.Any]
 ) -> None:
+    """Apply ``OnDelete`` rules for documents of ``manager``'s model that are about to be deleted.
+
+    ``seen`` holds every (collection, id) already being deleted in this cascade, so a cycle of
+    cascading references ends instead of recursing forever.
+    """
+    from mongospecs.manager import _chunks
+
     for rule in rules:
         other: Manager[t.Any] = rule.manager
         stored = rule.field.stored
-        flt = {stored: {"$in": ids}}
-        if rule.action == "cascade":
-            await other.delete_many(flt, session=session)
-            continue
-        ctx = other.ctx("update", session, many=True)
-        scoped = other.scoped(ctx, flt, True)
-        update: dict[str, t.Any] = (
-            {"$set": {stored: None}} if rule.action == "nullify" else {"$pull": {stored: {"$in": ids}}}
-        )
-        for plugin in other.plugins:
-            plugin.on_update(ctx, scoped, update)
-        with other._op("cascade"):
-            await other.collection.update_many(scoped, update, **other._kw(session))
+        for chunk in _chunks(ids):
+            flt = {stored: {"$in": chunk}}
+            if rule.action == "cascade":
+                await other.delete_many(flt, session=session, _seen=seen)
+                continue
+            ctx = other.ctx("update", session, many=True)
+            scoped = other.scoped(ctx, flt, True)
+            update: dict[str, t.Any] = (
+                {"$set": {stored: None}} if rule.action == "nullify" else {"$pull": {stored: {"$in": chunk}}}
+            )
+            for plugin in other.plugins:
+                plugin.on_update(ctx, scoped, update)
+            with other._op("cascade"):
+                await other.collection.update_many(scoped, update, **other._kw(session))
 
 
 # -- $graphLookup ----------------------------------------------------------------------------

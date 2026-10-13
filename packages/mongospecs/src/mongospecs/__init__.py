@@ -47,7 +47,7 @@ from mongospecs.expr import (
 )
 from mongospecs.hooks import OpCtx, Plugin
 from mongospecs.indexes import Action, IndexAction, IndexPlan, apply_indexes, plan_indexes
-from mongospecs.manager import BulkResult, Manager
+from mongospecs.manager import BulkResult, Manager, UpdateCount
 from mongospecs.markers import (
     Alias,
     Backref,
@@ -169,6 +169,7 @@ __all__ = [
     "Tx",
     "Type",
     "Unset",
+    "UpdateCount",
     "UpdateMany",
     "UpdateOne",
     "UpdatedAt",

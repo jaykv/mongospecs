@@ -120,7 +120,13 @@ class Api:
             if response.status >= 500:
                 logging.getLogger("mongospecs_web").error("authentication failed unexpectedly", exc_info=exc)
             return response
-        return await route.resource.dispatch(route.operation, request)
+        response = await route.resource.dispatch(route.operation, request)
+        location = response.headers.get("location")
+        if location and not location.startswith(("/", "http://", "https://")):
+            # A resource names what it created by id; the URL of that thing depends on where
+            # the API is mounted, which only the Api knows.
+            response.headers["location"] = f"{self.prefix}/{route.resource.name}/{location}"
+        return response
 
     async def handle(
         self,

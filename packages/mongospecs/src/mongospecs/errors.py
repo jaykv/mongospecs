@@ -38,6 +38,10 @@ __all__ = [
 class MongoSpecsError(Exception):
     """Base class for every error raised by mongospecs."""
 
+    failed: t.Sequence[t.Any] = ()
+    """For batch operations that partly succeeded: the documents that were *not* written.
+    Every other document in the batch was written and is in sync in memory."""
+
 
 class ConfigurationError(MongoSpecsError):
     """A model, plugin or registry is declared incorrectly."""

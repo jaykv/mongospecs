@@ -58,9 +58,16 @@ class DeleteMany(DeleteOne):
     __slots__ = ()
 
 
-def compile_bulk(manager: Manager[t.Any], ctx: OpCtx, operations: t.Iterable[t.Any]) -> list[t.Any]:
-    """Compile typed bulk operations to driver requests."""
+def compile_bulk(
+    manager: Manager[t.Any], ctx: OpCtx, operations: t.Iterable[t.Any]
+) -> tuple[list[t.Any], dict[int, tuple[dict[str, t.Any], bool]]]:
+    """Compile typed bulk operations to driver requests.
+
+    Also returns the hard deletes as ``{request index: (filter, many)}`` so the caller
+    can run cascade rules for them.
+    """
     requests: list[t.Any] = []
+    deletes: dict[int, tuple[dict[str, t.Any], bool]] = {}
     for op in operations:
         if isinstance(op, InsertOne):
             doc = manager.meta.decode(dict(op.doc), stored=False) if isinstance(op.doc, t.Mapping) else op.doc
@@ -84,10 +91,11 @@ def compile_bulk(manager: Manager[t.Any], ctx: OpCtx, operations: t.Iterable[t.A
             if soft is not None:
                 requests.append((pymongo.UpdateMany if op.many else pymongo.UpdateOne)(flt, soft))
             else:
+                deletes[len(requests)] = (flt, op.many)
                 requests.append((pymongo.DeleteMany if op.many else pymongo.DeleteOne)(flt))
         else:
             raise QueryError(
                 f"bulk_write takes mongospecs.bulk operations, got {type(op).__name__}; "
                 "use Model.collection().bulk_write for raw driver operations"
             )
-    return requests
+    return requests, deletes

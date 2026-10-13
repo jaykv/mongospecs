@@ -21,7 +21,7 @@ from mongospecs.meta import meta_of
 from mongospecs.updates import UpdateOp
 
 if t.TYPE_CHECKING:
-    from mongospecs.manager import Manager
+    from mongospecs.manager import Manager, UpdateCount
     from mongospecs.relations import Include
 
 __all__ = ["Page", "Query"]
@@ -254,7 +254,8 @@ class Query(t.Generic[T]):
                 keys[meta.disc_key] = None
             projection = {k: 1 for k in keys}
             return projection, frozenset(k.partition(".")[0] for k in keys) | {"_id"}
-        excluded = [*deferred, *exclude]
+        required = set(needed)
+        excluded = [key for key in (*deferred, *exclude) if key.partition(".")[0] not in required]
         if not excluded:
             return None, None
         return {k: 0 for k in excluded}, meta.stored_keys - {k for k in excluded if "." not in k}
@@ -268,6 +269,8 @@ class Query(t.Generic[T]):
         manager = self._manager
         lookups, batched = plan_includes(manager, self._includes, self._mode)
         needed = [manager.meta.fields[i.name].stored for i in self._includes if i.name in manager.meta.refs]
+        # Sort keys are always fetched: cursor pagination builds the next cursor from them.
+        needed += [key.partition(".")[0] for key, _ in self._sort_spec()]
         projection, partial = self._projection(needed)
         plan: dict[str, t.Any] = {
             "filter": self._filter(),
@@ -492,8 +495,9 @@ class Query(t.Generic[T]):
         if self._skip or self._limit or self._sort:
             raise QueryError(f"{what} applies to every match; sort, skip and limit are not supported")
 
-    async def update(self, *ops: UpdateOp, **fields: t.Any) -> int:
-        """Atomically update every match. Returns the number of documents modified.
+    async def update(self, *ops: UpdateOp, **fields: t.Any) -> UpdateCount:
+        """Atomically update every match. Returns the number of documents modified
+        (an ``int`` that also carries ``.matched`` and ``.modified``).
 
         Documents are not loaded, so document hooks do not run; plugins still
         rewrite the command (timestamps, revisions, scopes).

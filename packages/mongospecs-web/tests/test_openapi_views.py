@@ -151,6 +151,11 @@ async def test_api_handle_without_a_server():
         "POST", "/api/widgets", body=b'{"name":"direct"}', headers={"authorization": "Bearer ann"}
     )
     assert created.status == 201 and b'"direct"' in created.body
+    # Location is a URL that resolves to the new resource, wherever the API is mounted
+    assert created.headers["location"].startswith("/api/widgets/")
+    assert (
+        await api.handle("GET", created.headers["location"], headers={"authorization": "Bearer ann"})
+    ).status == 200
     assert (await api.handle("GET", "/api/widgets/")).status == 200  # trailing slash tolerated
     assert (await api.handle("GET", "/api/widgets/stats")).status == 200  # literal segment beats {id}
     assert (await api.handle("GET", "/api/nope")).status == 404

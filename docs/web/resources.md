@@ -46,7 +46,7 @@ registry = await Registry("mongodb://localhost/app", models=[Task]).open()
 
 | Policy | Meaning |
 |---|---|
-| `insert=False` / `update=False` | not settable on create / on patch |
+| `insert=False` / `update=False` | not settable on create / on patch and put |
 | `private=True` | never returned, filtered or sorted; not writable unless `insert`/`update` say so |
 | `filter=("eq", "gte", ...)` | operators allowed in the query string (`True` for all) |
 | `sort=True` | usable in `?sort=` |
@@ -143,6 +143,7 @@ These are set so that a client cannot make the server do unbounded work.
 | `MongoBackend(max_time_ms=...)` | 10 s | Time limit for reads made for a request, when the registry and the model set none |
 | `Api(openapi=...)` | `True` | Serve `<prefix>/openapi.json`; turn off to keep the description private |
 | `Resource(explicit_writes=...)` | `False` | When `True`, a field is writable only if its `Policy` says `insert=True` / `update=True` |
+| `Resource(merge_patch=...)` | `True` | When `False`, `PATCH` replaces embedded objects instead of merging into them (see below) |
 
 An integer outside the 64-bit range MongoDB can store is a 422 with a field error, on create and
 on patch (a float or Decimal field takes it as that type). A guard listed in more than one place
@@ -176,6 +177,49 @@ What a client cannot set, it cannot clear either:
 - a list or dict of embedded objects that hold such values cannot be replaced through `PATCH`
   (there is no way to merge into a list item). Give such lists their own operation with
   `@resource.op`, where your code decides what happens to the server's values.
+
+### Turning the merge off
+
+`Resource(Person, merge_patch=False)` makes `PATCH` replace an embedded object with the one sent,
+as it did before the merge was introduced. Top-level fields are still partial. Choose it when:
+
+- the embedded model has validators that look at more than one field. A merge validates each key
+  on its own; a replacement validates the object as sent;
+- clients should be able to write over an object stored as `null` without knowing that it is;
+- the resource has its own backend that does not implement `supports_merge`.
+
+The cost is the reason the merge exists: every value in the object that the client did not send
+goes back to its default, and that includes the values it is not allowed to send (private fields,
+`update=False`, `Immutable`). Keep the merge for objects that carry such values. A request still
+cannot *set* them: a nested key the policy closes is a 422 either way. The setting belongs to the
+resource and not to the model, because it describes what an HTTP verb does; model code is not
+affected by it, and two resources over one model can differ.
+
+## PUT
+
+`PUT` is not among the default operations; list it to have it: `ops=[List, Get, Create, Patch, Put,
+Delete]`. Guards and hooks use the `Put` key, so it is not covered by what you registered for
+`Patch`.
+
+```
+PUT /people/1   {"name": "Ann", "address": {"city": "Oslo"}}
+```
+
+`PUT /{id}` replaces everything the client may write, in one atomic update, with the same
+`If-Match` check and revision bump as `PATCH`:
+
+- a field in the body takes that value; a writable field left out goes back to its default, and a
+  required one must be sent (422);
+- fields the client may not update keep their stored values, and naming one is a 422, as with
+  `PATCH`. A body read with `GET` is therefore not accepted back unchanged: leave out `id`, the
+  revision and the other read-only fields;
+- an embedded object with no such values inside is replaced whole and validated whole;
+- an embedded object that does hold them is replaced key by key: its writable keys follow the two
+  rules above and the rest stay. Left out of the body, it is not touched. It cannot be set to
+  `null`, and a list or dict of such objects cannot be sent;
+- the id comes from the URL, and a `PUT` to an id that does not exist is a 404. It never creates.
+
+OpenAPI gets a `PersonPut` schema (and `AddrPut` for an embedded object with protected values).
 
 The Patch schema in OpenAPI describes embedded objects as partial (`AddrPatch`: no required keys,
 only the writable ones). Values stored in untyped fields (`Any`, `dict[str, Any]`) are served as

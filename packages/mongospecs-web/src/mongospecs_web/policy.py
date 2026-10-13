@@ -360,9 +360,9 @@ class View:
                 nested_violations(value, plan, key, hidden)
                 errors.extend({"field": path, "message": "unknown field"} for path in hidden)
             if action == "create":
-                from mongospecs_web.merge import nested_create_errors
+                from mongospecs_web.merge import nested_write_errors
 
-                nested_create_errors(self.meta.fields[key].type, value, key, self.explicit_writes, errors)
+                nested_write_errors(self.meta.fields[key].type, value, key, self.explicit_writes, errors)
             if _has_oversized_int(value) and not _takes_any_number(self.meta.fields[key].type):
                 errors.append(
                     {"field": key, "message": f"integers must be between {INT64_MIN} and {INT64_MAX}"}
@@ -371,43 +371,58 @@ class View:
             raise Unprocessable("The request body failed validation.", errors=errors)
         return data
 
-    def plan_patch(self, data: t.Mapping[str, t.Any]) -> t.Any:
+    def plan_patch(self, data: t.Mapping[str, t.Any], *, merge: bool = True) -> t.Any:
         """Turn a checked PATCH body into a :class:`~mongospecs_web.merge.PatchPlan`.
 
         An object given for an embedded model is merged into the stored one, key by key;
-        see :mod:`mongospecs_web.merge` for the rules and the reason.
+        see :mod:`mongospecs_web.merge` for the rules and the reason. With ``merge=False``
+        it replaces the stored object instead.
         """
         from mongospecs_web.errors import Unprocessable
         from mongospecs_web.merge import plan_patch
 
-        plan, errors = plan_patch(self.meta.fields, data, self.explicit_writes)
+        plan, errors = plan_patch(self.meta.fields, data, self.explicit_writes, merge=merge)
         if errors:
             raise Unprocessable("The request body failed validation.", errors=errors)
         return plan
 
-    def _merge_schema(self, node: t.Any, defs: dict[str, t.Any]) -> t.Any:
+    def plan_put(self, data: t.Mapping[str, t.Any]) -> t.Any:
+        """Turn a checked PUT body into a :class:`~mongospecs_web.merge.PatchPlan` that
+        replaces everything the client may write and nothing else."""
+        from mongospecs_web.errors import Unprocessable
+        from mongospecs_web.merge import plan_put
+
+        plan, errors = plan_put(self.model, self.meta.fields, self.updatable, data, self.explicit_writes)
+        if errors:
+            raise Unprocessable("The request body failed validation.", errors=errors)
+        return plan
+
+    def _merge_schema(self, node: t.Any, defs: dict[str, t.Any], suffix: str = "Patch") -> t.Any:
         """The PATCH form of a property schema: an embedded object becomes a partial object.
 
         References reached directly or through ``anyOf`` (an optional object) point at
         ``<Name>Patch``; those inside ``items`` or ``additionalProperties`` are left alone,
-        because lists and dicts are replaced whole.
+        because lists and dicts are replaced whole. With ``suffix="Put"`` it is the PUT form.
         """
         if not isinstance(node, dict):
             return node
         ref = node.get("$ref")
         if isinstance(ref, str) and ref.startswith("#/$defs/"):
             name = ref.rsplit("/", 1)[1]
-            return {**node, "$ref": f"#/$defs/{self._patch_def(name, defs)}"}
+            return {**node, "$ref": f"#/$defs/{self._patch_def(name, defs, suffix)}"}
         out = dict(node)
         for key in _MERGE_KEYS:
             if isinstance(node.get(key), list):
-                out[key] = [self._merge_schema(item, defs) for item in node[key]]
+                out[key] = [self._merge_schema(item, defs, suffix) for item in node[key]]
         return out
 
-    def _patch_def(self, name: str, defs: dict[str, t.Any]) -> str:
-        from mongospecs_web.merge import _fields, _may
+    def _patch_def(self, name: str, defs: dict[str, t.Any], suffix: str = "Patch") -> str:
+        """Define ``<Name>Patch`` (every writable key, none required) or ``<Name>Put`` (the
+        writable keys of an object that also holds values only the server sets; the required
+        ones stay required). An object without such values has no Put form: it is sent whole."""
+        from mongospecs_web.merge import _fields, _may, _protected, holds_protected, single_model
 
-        patch_name = f"{name}Patch"
+        patch_name = f"{name}{suffix}"
         if patch_name in defs or name not in defs:
             return patch_name if patch_name in defs else name
         classes = {
@@ -416,18 +431,30 @@ class View:
         cls = classes.get(name)
         if cls is None:
             return name
-        writable = {
-            key
-            for key, (_, info) in _fields(cls).items()
-            if not info.policy.private and _may(info, "update", self.explicit_writes)
-        }
+        put = suffix == "Put"
+        if put and not _protected(cls, self.explicit_writes, set()):
+            return name
+        writable: set[str] = set()
+        kept: set[str] = set()  # PUT: left as stored when the request does not send them
+        for key, (_, info) in _fields(cls).items():
+            if info.policy.private or not _may(info, "update", self.explicit_writes):
+                continue
+            guarded = put and holds_protected(info.type, self.explicit_writes)
+            if guarded and single_model(info.type) is None:
+                continue  # a list or dict of such objects cannot be replaced at all
+            writable.add(key)
+            if guarded:
+                kept.add(key)
         full = defs[name]
         defs[patch_name] = partial = {k: v for k, v in full.items() if k not in ("required", "title")}
         partial["properties"] = {
-            key: self._merge_schema(value, defs)
+            key: self._merge_schema(value, defs, suffix)
             for key, value in full.get("properties", {}).items()
             if key in writable
         }
+        required = [k for k in full.get("required", []) if k in writable and k not in kept]
+        if put and required:
+            partial["required"] = required
         partial["additionalProperties"] = False
         return patch_name
 
@@ -463,8 +490,14 @@ class View:
             base = {**base, "$defs": defs}
         return base
 
-    def schema(self, kind: t.Literal["read", "create", "patch"]) -> dict[str, t.Any]:
-        """JSON Schema of one view. ``$defs`` of nested models are kept alongside."""
+    def schema(
+        self, kind: t.Literal["read", "create", "patch", "put"], *, merge: bool = True
+    ) -> dict[str, t.Any]:
+        """JSON Schema of one view. ``$defs`` of nested models are kept alongside.
+
+        ``merge=False`` gives the Patch view of a resource whose ``PATCH`` replaces embedded
+        objects instead of merging into them.
+        """
         base = self._base()
         props: dict[str, t.Any] = base.get("properties", {})
         required: list[str] = list(base.get("required", []))
@@ -490,10 +523,25 @@ class View:
         if not schema.get("required"):
             schema.pop("required", None)
         all_defs: dict[str, t.Any] = dict(base.get("$defs", {}))
-        if kind == "patch":
+        if kind == "patch" and merge:
             schema["properties"] = {
                 name: self._merge_schema(node, all_defs) for name, node in schema["properties"].items()
             }
+        elif kind == "put":
+            from mongospecs_web.merge import holds_protected, single_model
+
+            # What holds values only the server sets is optional (left as stored when not
+            # sent); a list or dict of such objects cannot be sent at all.
+            types = {name: self.meta.fields[name].type for name in schema["properties"]}
+            kept = {name for name, tp in types.items() if holds_protected(tp, self.explicit_writes)}
+            schema["properties"] = {
+                name: self._merge_schema(node, all_defs, "Put") if name in kept else node
+                for name, node in schema["properties"].items()
+                if name not in kept or single_model(types[name]) is not None
+            }
+            schema["required"] = [n for n in required if n in allowed and n not in kept]
+            if not schema["required"]:
+                del schema["required"]
         defs = _reachable(schema, all_defs)
         if defs:
             schema["$defs"] = defs

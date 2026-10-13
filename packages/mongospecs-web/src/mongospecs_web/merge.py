@@ -15,6 +15,12 @@ ones. A client must not be able to clear what it cannot set, so:
 * an embedded object that holds such values cannot be set to ``null``;
 * a list or dict of embedded objects that hold such values cannot be replaced
   through ``PATCH`` at all (there is no way to merge into a list item).
+
+``PUT`` (:func:`plan_put`) is the same machinery asked a different question: every
+field the client may write takes the value sent or goes back to its default, and
+what the client cannot write stays as it is stored. ``Resource(merge_patch=False)``
+turns the merge off: ``PATCH`` then replaces embedded objects whole, and the values
+a client cannot send are reset to their defaults.
 """
 
 from __future__ import annotations
@@ -25,7 +31,14 @@ from dataclasses import dataclass, field
 from mongospecs import Document, Immutable, Ref, ValidationError
 from mongospecs.codec import _UNION_ORIGINS, FieldInfo, _codec_or_none, codec_for, to_bson
 
-__all__ = ["PatchPlan", "holds_protected", "nested_create_errors", "plan_patch", "single_model"]
+__all__ = [
+    "PatchPlan",
+    "holds_protected",
+    "nested_write_errors",
+    "plan_patch",
+    "plan_put",
+    "single_model",
+]
 
 
 @dataclass
@@ -104,10 +117,10 @@ def holds_protected(tp: t.Any, explicit: bool, seen: set[type] | None = None) ->
     return any(holds_protected(arg, explicit, seen) for arg in t.get_args(tp))
 
 
-def nested_create_errors(
-    tp: t.Any, value: t.Any, path: str, explicit: bool, out: list[dict[str, t.Any]]
+def nested_write_errors(
+    tp: t.Any, value: t.Any, path: str, explicit: bool, out: list[dict[str, t.Any]], action: str = "create"
 ) -> None:
-    """On create: keys inside embedded objects that the client may not set."""
+    """Keys inside embedded objects, given whole, that the client may not set on ``action``."""
     while t.get_origin(tp) is t.Annotated:
         tp = t.get_args(tp)[0]
     origin = t.get_origin(tp)
@@ -122,33 +135,39 @@ def nested_create_errors(
             hit = fields.get(key)
             if hit is None or hit[1].policy.private:
                 continue  # unknown keys are the model's to reject; private ones are reported already
-            if not _may(hit[1], "create", explicit):
-                out.append({"field": f"{path}.{key}", "message": "cannot be set on create"})
+            if not _may(hit[1], action, explicit):
+                out.append({"field": f"{path}.{key}", "message": f"cannot be set on {action}"})
             else:
-                nested_create_errors(hit[1].type, item, f"{path}.{key}", explicit, out)
+                nested_write_errors(hit[1].type, item, f"{path}.{key}", explicit, out, action)
         return
     args = [a for a in t.get_args(tp) if a is not type(None)]
     if origin in _UNION_ORIGINS:
         for arg in args:
-            nested_create_errors(arg, value, path, explicit, out)
+            nested_write_errors(arg, value, path, explicit, out, action)
     elif isinstance(value, list) and args:
         for index, item in enumerate(value):
-            nested_create_errors(args[0], item, f"{path}.{index}", explicit, out)
+            nested_write_errors(args[0], item, f"{path}.{index}", explicit, out, action)
     elif isinstance(value, dict) and len(args) == 2:
         for key, item in value.items():
-            nested_create_errors(args[1], item, f"{path}.{key}", explicit, out)
+            nested_write_errors(args[1], item, f"{path}.{key}", explicit, out, action)
 
 
 def plan_patch(
-    fields: t.Mapping[str, FieldInfo], data: t.Mapping[str, t.Any], explicit: bool
+    fields: t.Mapping[str, FieldInfo], data: t.Mapping[str, t.Any], explicit: bool, *, merge: bool = True
 ) -> tuple[PatchPlan, list[dict[str, t.Any]]]:
     """Split a PATCH body (already checked at the top level) into a :class:`PatchPlan`.
 
     Returns the plan and the list of field errors; the plan is only meaningful when
-    there are none.
+    there are none. With ``merge=False`` every value replaces the stored one whole; the
+    only check left is that the body does not name a nested key the client may not write.
     """
     plan = PatchPlan()
     errors: list[dict[str, t.Any]] = []
+    if not merge:
+        for key, value in data.items():
+            nested_write_errors(fields[key].type, value, key, explicit, errors, "update")
+            plan.fields[key] = value
+        return plan, errors
     for key, value in data.items():
         info = fields[key]
         cls = single_model(info.type)
@@ -163,10 +182,51 @@ def plan_patch(
     return plan, errors
 
 
+def plan_put(
+    model: type,
+    fields: t.Mapping[str, FieldInfo],
+    updatable: t.Collection[str],
+    data: t.Mapping[str, t.Any],
+    explicit: bool,
+) -> tuple[PatchPlan, list[dict[str, t.Any]]]:
+    """Turn a PUT body (already checked at the top level) into a :class:`PatchPlan`.
+
+    Every field the client may update is written: with the value sent, or with its default
+    when the body leaves it out (a required field has to be sent). Fields the client may not
+    update are not part of the plan, so they keep their stored values. The same holds inside
+    an embedded object that has such fields; one that has none is replaced whole.
+    """
+    plan = PatchPlan()
+    errors: list[dict[str, t.Any]] = []
+    defaults = codec_for(model).defaults(model)
+    for key, info in fields.items():
+        if key not in updatable:
+            continue
+        cls = single_model(info.type)
+        guarded = holds_protected(info.type, explicit)
+        if key not in data:
+            if guarded:
+                continue  # resetting it would clear what only the server sets
+            if info.required:
+                errors.append({"field": key, "message": "is required"})
+            else:
+                plan.fields[key] = defaults.get(key)
+        elif not guarded:
+            plan.fields[key] = data[key]
+        elif cls is not None and isinstance(data[key], dict):
+            _merge(cls, data[key], key, key, plan, errors, explicit, replace=True)
+        elif cls is not None and data[key] is None:
+            errors.append({"field": key, "message": _CANNOT_REMOVE})
+        elif cls is None:
+            errors.append({"field": key, "message": _CANNOT_REPLACE})
+        else:
+            plan.fields[key] = data[key]  # not an object: the model's own validation rejects it
+    return plan, errors
+
+
 _CANNOT_REMOVE = "cannot be removed: it holds values only the server sets"
 _CANNOT_REPLACE = (
-    "cannot be replaced through PATCH: its items hold values only the server sets, "
-    "and replacing them would clear those"
+    "cannot be replaced: its items hold values only the server sets, and replacing them would clear those"
 )
 
 
@@ -178,7 +238,13 @@ def _merge(
     plan: PatchPlan,
     errors: list[dict[str, t.Any]],
     explicit: bool,
+    replace: bool = False,
 ) -> None:
+    """Plan the writes for one embedded object.
+
+    With ``replace`` (PUT) the keys the client may write and did not send go back to their
+    defaults, and an object nested in this one is only walked into when it has values to keep.
+    """
     codec = codec_for(cls)
     fields = _fields(cls)
     defaults = codec.defaults(cls)
@@ -197,8 +263,10 @@ def _merge(
         supplied.add(name)
         target = f"{path}.{info.stored}"
         inner = single_model(info.type)
+        if replace and not holds_protected(info.type, explicit):
+            inner = None  # nothing in it to keep: validated and written whole below
         if inner is not None and isinstance(item, dict):
-            _merge(inner, item, where, target, plan, errors, explicit)
+            _merge(inner, item, where, target, plan, errors, explicit, replace)
         elif item is None:
             if inner is not None and _protected(inner, explicit, set()):
                 errors.append({"field": where, "message": _CANNOT_REMOVE})
@@ -217,6 +285,23 @@ def _merge(
             except ValidationError as exc:
                 message = exc.errors[0]["message"] if exc.errors else str(exc)
                 errors.append({"field": where, "message": message})
+    if replace:
+        for name, info in codec.fields(cls).items():
+            if name in supplied or info.policy.private or not _may(info, "update", explicit):
+                continue
+            if holds_protected(info.type, explicit):
+                continue
+            target = f"{path}.{info.stored}"
+            if info.required:
+                errors.append({"field": f"{client_path}.{name}", "message": "is required"})
+                supplied.add(name)  # reported here, not again as a missing parent
+            elif defaults.get(name) is None:
+                if info.stored in absent:
+                    plan.unset.append(target)
+                else:
+                    plan.set[target] = None
+            else:
+                plan.set[target] = to_bson(defaults[name])
     required = tuple(
         name for name, info in codec.fields(cls).items() if info.required and name not in supplied
     )

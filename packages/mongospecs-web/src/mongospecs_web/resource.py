@@ -29,7 +29,19 @@ from mongospecs_web.errors import (
 from mongospecs_web.filters import Cursor, Pagination, parse_includes, parse_list_query
 from mongospecs_web.policy import View, view_of
 
-__all__ = ["Create", "Ctx", "Delete", "Get", "List", "Operation", "Patch", "Request", "Resource", "Response"]
+__all__ = [
+    "Create",
+    "Ctx",
+    "Delete",
+    "Get",
+    "List",
+    "Operation",
+    "Patch",
+    "Put",
+    "Request",
+    "Resource",
+    "Response",
+]
 
 T = t.TypeVar("T")
 F = t.TypeVar("F", bound=t.Callable[..., t.Any])
@@ -41,6 +53,7 @@ List = "list"
 Get = "get"
 Create = "create"
 Patch = "patch"
+Put = "put"
 Delete = "delete"
 
 JSON = "application/json"
@@ -212,12 +225,17 @@ class Resource(t.Generic[T]):
         tags: t.Sequence[str] | None = None,
         server_fields: t.Callable[[Ctx[T]], t.Any] | None = None,
         explicit_writes: bool = False,
+        merge_patch: bool = True,
     ) -> None:
         self.model = model
         self.view: View = view_of(model, explicit_writes=explicit_writes)
         """With ``explicit_writes=True`` a field is writable only if its ``Policy`` says so
         (``Policy(insert=True)``, ``Policy(update=True)``); by default ordinary fields are
         writable unless marked otherwise."""
+        self.merge_patch = merge_patch
+        """``PATCH`` merges an object given for an embedded model into the stored one. With
+        ``merge_patch=False`` it replaces the stored object: the embedded model is validated
+        whole, and every value in it that the client cannot send goes back to its default."""
         self.name = name or self.view.meta.collection
         self.backend: ResourceBackend[T] = backend if backend is not None else MongoBackend(model)
         self.scope_fn = scope
@@ -252,12 +270,13 @@ class Resource(t.Generic[T]):
             Get: self._get_op,
             Create: self._create_op,
             Patch: self._patch_op,
+            Put: self._put_op,
             Delete: self._delete_op,
         }
         for kind in ops:
             if kind not in builders:
                 raise ValueError(
-                    f"unknown operation {kind!r}; use List, Get, Create, Patch, Delete or @resource.op"
+                    f"unknown operation {kind!r}; use List, Get, Create, Patch, Put, Delete or @resource.op"
                 )
             self.operations.append(builders[kind]())
 
@@ -561,23 +580,7 @@ class Resource(t.Generic[T]):
             if body is None:
                 raise Unprocessable("A JSON request body is required.")
             data = self.view.check_input(body, self.view.updatable, "update")
-            plan = self.view.plan_patch(data)
-            if_rev = _if_match(ctx.request.headers.get("if-match"), self.view.revision is not None)
-            if plan.nested:
-                # Objects given for embedded models are merged, not replaced.
-                if not getattr(self.backend, "supports_merge", False):
-                    raise Unprocessable("This resource cannot patch part of an embedded object.")
-                doc = await t.cast(t.Any, self.backend).patch(
-                    ctx.id, plan.fields, scope=await ctx.scope(), if_rev=if_rev, merge=plan
-                )
-            else:
-                doc = await self.backend.patch(ctx.id, plan.fields, scope=await ctx.scope(), if_rev=if_rev)
-            ctx.state["result"] = doc
-            headers: dict[str, str] = {}
-            etag = self.view.etag(doc)
-            if etag:
-                headers["etag"] = etag
-            return Response.json({"data": self.view.serialize(doc)}, 200, headers)
+            return await self._write(ctx, self.view.plan_patch(data, merge=self.merge_patch))
 
         return Operation(
             Patch,
@@ -590,6 +593,45 @@ class Resource(t.Generic[T]):
             self._ref("patch"),
             self._one(),
         )
+
+    def _put_op(self) -> Operation:
+        async def handler(ctx: Ctx[T]) -> Response:
+            body = ctx.body()
+            if body is None:
+                raise Unprocessable("A JSON request body is required.")
+            data = self.view.check_input(body, self.view.updatable, "update")
+            return await self._write(ctx, self.view.plan_put(data))
+
+        return Operation(
+            Put,
+            "PUT",
+            "/{id}",
+            handler,
+            Put,
+            f"Replace one of {self.name}",
+            200,
+            self._ref("put"),
+            self._one(),
+        )
+
+    async def _write(self, ctx: Ctx[T], plan: t.Any) -> Response:
+        """Apply a planned PATCH or PUT in one atomic update and return the document."""
+        if_rev = _if_match(ctx.request.headers.get("if-match"), self.view.revision is not None)
+        if plan.nested:
+            # Writes inside an embedded object, leaving the rest of it as stored.
+            if not getattr(self.backend, "supports_merge", False):
+                raise Unprocessable("This resource cannot write part of an embedded object.")
+            doc = await t.cast(t.Any, self.backend).patch(
+                ctx.id, plan.fields, scope=await ctx.scope(), if_rev=if_rev, merge=plan
+            )
+        else:
+            doc = await self.backend.patch(ctx.id, plan.fields, scope=await ctx.scope(), if_rev=if_rev)
+        ctx.state["result"] = doc
+        headers: dict[str, str] = {}
+        etag = self.view.etag(doc)
+        if etag:
+            headers["etag"] = etag
+        return Response.json({"data": self.view.serialize(doc)}, 200, headers)
 
     def _delete_op(self) -> Operation:
         async def handler(ctx: Ctx[T]) -> None:

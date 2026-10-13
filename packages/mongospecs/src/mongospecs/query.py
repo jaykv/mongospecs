@@ -66,6 +66,7 @@ class Query(t.Generic[T]):
         "_fail",
         "_includes",
         "_invalid",
+        "_keys",
         "_limit",
         "_manager",
         "_mode",
@@ -107,11 +108,29 @@ class Query(t.Generic[T]):
         self._options: dict[str, t.Any] = dict(options or {})
         self._fail = fail
         self._invalid = invalid
+        self._keys: dict[int, t.Any] | None = None
 
     def _clone(self, **changes: t.Any) -> Query[T]:
-        state = {name.lstrip("_"): getattr(self, name) for name in self.__slots__ if name != "_manager"}
-        state.update(changes)
-        return type(self)(self._manager, **state)
+        # A query is cloned several times on every call path; copying the slots is much
+        # cheaper than going through __init__ with a dozen keyword arguments.
+        new: Query[T] = object.__new__(type(self))
+        new._manager = self._manager
+        new._conditions = self._conditions
+        new._sort = self._sort
+        new._skip = self._skip
+        new._limit = self._limit
+        new._select = self._select
+        new._includes = self._includes
+        new._mode = self._mode
+        new._unscoped = self._unscoped
+        new._session = self._session
+        new._options = self._options
+        new._fail = self._fail
+        new._invalid = self._invalid
+        new._keys = None
+        for name, value in changes.items():
+            setattr(new, "_" + name, dict(value) if name == "options" else value)
+        return new
 
     # -- builders --------------------------------------------------------------
 
@@ -362,6 +381,7 @@ class Query(t.Generic[T]):
         options = manager.registry._codec_options
 
         invalid = self._invalid
+        stored_keys = self._keys
 
         async def flush(raws: list[t.Any]) -> list[t.Any]:
             misfits: list[tuple[int, t.Any]] = []  # (position, raw document) kept for on_invalid("raw")
@@ -382,6 +402,8 @@ class Query(t.Generic[T]):
                         if invalid == "raw":
                             misfits.append((position, plain))
                         continue
+                    if stored_keys is not None:
+                        stored_keys[id(doc)] = plain
                     if data is not None:
                         tracking.track(doc, data, manager, partial)
                     elif mode == "tracked":
@@ -561,7 +583,8 @@ class Query(t.Generic[T]):
         Without ``number`` this is cursor (keyset) pagination: pass the previous
         page's ``next_cursor`` as ``after``. The sort is made total by appending
         ``_id``, so the index serving it should end in ``_id`` (``Index("price", "id")``);
-        otherwise the server sorts in memory. Sort fields should not be null.
+        otherwise the server sorts in memory. Documents without a value for a sort
+        field are paged too: they come first ascending and last descending.
         With ``number`` (1-based) it is
         offset pagination. ``total=True`` adds a count of all matches.
         """
@@ -587,6 +610,10 @@ class Query(t.Generic[T]):
 
                 query = query.filter(Trusted(_keyset_filter(sort, _decode_cursor(after, len(sort)))))
 
+        if number is None and query._mode != "raw":
+            # The cursor must hold the sort keys as they are stored. A model has its
+            # default where the stored document has no key, which sorts elsewhere.
+            query._keys = {}
         total_count: int | None
         if count_task is not None and self._session is None:
             items, total_count = await asyncio.gather(query.all(), count_task)
@@ -597,7 +624,11 @@ class Query(t.Generic[T]):
         items = items[:size]
         next_cursor = None
         if number is None and has_next and items:
-            next_cursor = _encode_cursor(self._sort_values(items[-1], query._sort_spec()))
+            last = items[-1]
+            stored = query._keys.get(id(last)) if query._keys is not None else None
+            next_cursor = _encode_cursor(
+                self._sort_values(last if stored is None else stored, query._sort_spec())
+            )
         return Page(items, size, has_next, next_cursor, number, total_count)
 
     def _sort_values(self, item: t.Any, sort: list[tuple[str, int]]) -> list[t.Any]:
@@ -665,10 +696,20 @@ def _decode_cursor(token: str, expected: int) -> list[t.Any]:
 
 
 def _keyset_filter(sort: list[tuple[str, int]], values: list[t.Any]) -> dict[str, t.Any]:
-    """Documents strictly after ``values`` in ``sort`` order."""
+    """Documents strictly after ``values`` in ``sort`` order.
+
+    A missing or null sort key sorts before every value, so it comes first ascending and
+    last descending; ``{key: None}`` matches both the missing key and an explicit null.
+    """
     branches: list[dict[str, t.Any]] = []
     for i, (key, direction) in enumerate(sort):
-        branch: dict[str, t.Any] = {sort[j][0]: values[j] for j in range(i)}
-        branch[key] = {"$gt" if direction == 1 else "$lt": values[i]}
-        branches.append(branch)
+        prefix: dict[str, t.Any] = {sort[j][0]: values[j] for j in range(i)}
+        value = values[i]
+        if direction == 1:
+            # after "no value" comes every value; after a value come the larger ones
+            branches.append({**prefix, key: {"$ne": None} if value is None else {"$gt": value}})
+        elif value is not None:
+            branches.append({**prefix, key: {"$lt": value}})
+            branches.append({**prefix, key: None})  # documents without a value come last
+        # descending and already among the documents without a value: only ties remain
     return branches[0] if len(branches) == 1 else {"$or": branches}

@@ -274,11 +274,22 @@ class View:
         )
         revision = next((f for f in fields.values() if f.has(Revision)), None)
         self.revision: str | None = revision.name if revision else None
+        self._revision_stored: str | None = revision.stored if revision else None
+        from mongospecs_web.fastread import compile_plan
+
+        self.fast = compile_plan(model, self.computed)
+        """Plan for serialising straight from a stored document, or ``None`` when this model
+        needs the model path (see :mod:`mongospecs_web.fastread`)."""
 
     # -- output ----------------------------------------------------------------
 
     def serialize(self, doc: t.Any, include: t.Collection[str] = ()) -> dict[str, t.Any]:
-        """The Read view of a document as JSON types. Private fields never appear."""
+        """The Read view of a document as JSON types. Private fields never appear.
+
+        ``doc`` is a model instance, or a stored document (a ``dict``) read for this purpose.
+        """
+        if type(doc) is dict:
+            return self.serialize_raw(doc, include)
         if type(doc) is not self.model:
             return view_of(type(doc)).serialize(doc, include)
         data = self.meta.codec.to_json(doc)
@@ -303,9 +314,25 @@ class View:
             out[name] = jsonable(getattr(doc, name))
         return out
 
+    def serialize_raw(self, raw: dict[str, t.Any], include: t.Collection[str] = ()) -> dict[str, t.Any]:
+        """The Read view of a stored document; identical to decoding it and calling ``serialize``."""
+        from mongospecs_web.fastread import Slow
+
+        if self.fast is not None and not include:
+            try:
+                return self.fast.serialize(raw)
+            except Slow:
+                pass  # a value that does not have its declared type: take the careful path
+        return self.serialize(self.meta.decode(raw), include)
+
     def etag(self, doc: t.Any) -> str | None:
         if self.revision is None:
             return None
+        if type(doc) is dict:
+            revision = doc.get(self._revision_stored, 0)
+            if type(revision) is not int:  # stored as a double by another writer: let the model read it
+                revision = getattr(self.meta.decode(doc), self.revision)
+            return f'"{revision}"'
         return f'"{getattr(doc, self.revision)}"'
 
     # -- input ---------------------------------------------------------------

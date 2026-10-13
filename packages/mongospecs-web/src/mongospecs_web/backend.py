@@ -107,21 +107,35 @@ class MongoBackend(t.Generic[T]):
             return None
         return query.filter(scope) if scope is not None else query
 
+    supports_raw = True
+    """``get`` and ``list`` accept ``fields=``: return stored documents (dicts) holding only
+    those fields instead of models. A Resource asks for this when it will only serialise the
+    result and its view can do that without a model."""
+
     async def get(
-        self, id: t.Any, *, scope: t.Any, include: t.Sequence[str] = (), read_only: bool = False
+        self,
+        id: t.Any,
+        *,
+        scope: t.Any,
+        include: t.Sequence[str] = (),
+        read_only: bool = False,
+        fields: t.Sequence[str] | None = None,
     ) -> T | None:
         query = self._by_id(id, scope)
         if query is None:
             return None
         query = self._bounded(query)
-        if read_only:
+        if fields is not None:
+            query = query.raw().select(*fields)  # only what will be shown leaves the database
+        elif read_only:
             query = query.lean()  # nothing will be saved: skip change tracking
         for path in include:
             query = query.include(path)
         return t.cast("T | None", await query.first())
 
-    async def list(self, query: ListQuery, *, scope: t.Any) -> Page[T]:
-        q = self._bounded(self.manager.find(*(f.to_expr() for f in query.filters))).lean()  # read-only
+    async def list(self, query: ListQuery, *, scope: t.Any, fields: t.Sequence[str] | None = None) -> Page[T]:
+        q = self._bounded(self.manager.find(*(f.to_expr() for f in query.filters)))
+        q = q.raw().select(*fields) if fields is not None else q.lean()  # read-only either way
         if scope is not None:
             q = q.filter(scope)
         if query.sort:
@@ -152,15 +166,24 @@ class MongoBackend(t.Generic[T]):
         return t.cast(T, await self.manager.update(target, if_rev=if_rev, **data))
 
     async def delete(self, id: t.Any, *, scope: t.Any, if_rev: int | None = None) -> None:
+        manager = self.manager
+        condition = manager.compile(scope) if scope is not None else None
+        try:
+            key = manager.meta.cast("id", id)
+        except QueryError:
+            raise DocumentNotFound(f"{self.model.__name__} {id!r} does not exist") from None
+        # One conditional write when nothing needs the document itself (no delete hooks, no
+        # cascades): the scope and the revision are part of the write's own filter.
+        if await manager.delete_by_id(key, condition=condition, if_rev=if_rev):
+            return
         query = self._by_id(id, scope)
         doc = await query.first() if query is not None else None
         if doc is None:
             raise DocumentNotFound(f"{self.model.__name__} {id!r} does not exist")
-        # The document is loaded so that hooks, soft delete and cascades run. The scope is
-        # then also part of the delete's own filter, so it holds at the moment of the write.
-        condition = self.manager.compile(scope) if scope is not None else None
+        # The document is loaded so that hooks and cascades run. The scope is then also
+        # part of the delete's own filter, so it holds at the moment of the write.
         try:
-            await self.manager.delete_document(doc, condition=condition, if_rev=if_rev)
+            await manager.delete_document(doc, condition=condition, if_rev=if_rev)
         except StaleDocumentError:
             if if_rev is not None:
                 raise

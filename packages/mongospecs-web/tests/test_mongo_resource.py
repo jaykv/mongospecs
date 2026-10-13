@@ -341,7 +341,10 @@ async def test_delete_is_conditional_and_scoped_at_the_write(app):
     finally:
         await observer.close()
     (write,) = [e.command for e in events if e.phase == "started" and e.command_name == "update"]
-    assert write["updates"][0]["q"] == {"_id": story.id, "rev": 1, "author": ann.id}
+    # the id, the revision, the row scope and the soft-delete scope, all in the one write
+    assert write["updates"][0]["q"] == {"_id": story.id, "rev": 1, "author": ann.id, "deleted_at": None}
+    sent = [e.command_name for e in events if e.phase == "started" and e.command_name != "endSessions"]
+    assert sent == ["update"]  # one conditional write, no read before it
     assert (await client.get(f"/v1/my-stories/{story.id}", headers=as_ann)).status_code == 404  # soft-deleted
 
 

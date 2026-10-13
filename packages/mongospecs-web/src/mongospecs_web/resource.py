@@ -232,6 +232,9 @@ class Resource(t.Generic[T]):
                 raise ValueError(f"{model.__name__}.{head} is not a readable relation and cannot be included")
         self.page: Pagination = page or Cursor()
         self.tags: tuple[str, ...] = tuple(tags) if tags is not None else (self.name,)
+        self.raw_reads = True
+        """Serve ``GET`` straight from stored documents where that is certain to give the same
+        response as going through the model. Set to ``False`` to always build models."""
         self._all_guards: tuple[Guard, ...] = ()
         self._guards: dict[str, tuple[Guard, ...]] = {}
         if isinstance(guards, t.Mapping):
@@ -379,10 +382,28 @@ class Resource(t.Generic[T]):
     def schema_name(self, kind: str) -> str:
         return f"{self.model.__name__}{kind.capitalize()}"
 
+    def _raw_fields(self, kind: str, include: t.Collection[str]) -> tuple[str, ...] | None:
+        """The fields to read as a plain stored document, or ``None`` to read a model.
+
+        Reading without a model is possible when the response is all the document is used
+        for: the view can serialise it directly, no relation is embedded, and no ``after``
+        hook is waiting for a model.
+        """
+        plan = self.view.fast
+        if plan is None or include or self._after.get(kind) or not self.raw_reads:
+            return None
+        if not getattr(self.backend, "supports_raw", False):
+            return None
+        return plan.select
+
     def _list_op(self) -> Operation:
         async def handler(ctx: Ctx[T]) -> Response:
             query = parse_list_query(ctx.request.query, self.view, self.page, self.includes)
-            page = await self.backend.list(query, scope=await ctx.scope())
+            fields = self._raw_fields(List, query.include)
+            if fields is not None:
+                page = await t.cast(t.Any, self.backend).list(query, scope=await ctx.scope(), fields=fields)
+            else:
+                page = await self.backend.list(query, scope=await ctx.scope())
             ctx.state["result"] = page
             meta: dict[str, t.Any] = {"size": page.size, "has_next": page.has_next}
             if page.number is not None:
@@ -485,7 +506,11 @@ class Resource(t.Generic[T]):
     def _get_op(self) -> Operation:
         async def handler(ctx: Ctx[T]) -> Response:
             include = parse_includes(ctx.request.query, self.includes)
-            doc = await self.backend.get(ctx.id, scope=await ctx.scope(), include=include, read_only=True)
+            fields = self._raw_fields(Get, include)
+            if fields is not None:
+                doc = await t.cast(t.Any, self.backend).get(ctx.id, scope=await ctx.scope(), fields=fields)
+            else:
+                doc = await self.backend.get(ctx.id, scope=await ctx.scope(), include=include, read_only=True)
             if doc is None:
                 raise NotFound("The resource does not exist.")
             ctx.state["result"] = doc

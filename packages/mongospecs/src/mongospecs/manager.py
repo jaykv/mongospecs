@@ -426,6 +426,59 @@ class Manager(t.Generic[T]):
             tracking.forget(doc)
         await self._hooks("after", ("delete",), ctx, doc)
 
+    def _needs_document_to_delete(self, hard: bool) -> bool:
+        if self.meta.hooks("before", "delete") or self.meta.hooks("after", "delete"):
+            return True
+        for plugin in self.plugins:
+            if type(plugin).before is not Plugin.before or type(plugin).after is not Plugin.after:
+                return True
+        return False
+
+    async def delete_by_id(
+        self,
+        id: t.Any,
+        *,
+        condition: t.Mapping[str, t.Any] | None = None,
+        if_rev: int | None = None,
+        hard: bool = False,
+        session: t.Any = None,
+    ) -> bool:
+        """Delete one document by id in a single conditional write, without loading it.
+
+        Returns ``False`` without doing anything when the delete needs the document: the
+        model has delete hooks, or it is a hard delete with cascades to run. Otherwise
+        deletes (softly when the model has a ``DeletedAt`` field, unless ``hard``) and
+        returns ``True``. Raises :class:`DocumentNotFound` when no document with this id
+        satisfies ``condition``, and :class:`StaleDocumentError` when ``if_rev`` is stale.
+        """
+        if self._needs_document_to_delete(hard):
+            return False
+        ctx = self.ctx("delete", session)
+        base = and_filters(self.scoped(ctx, {"_id": id}, False), condition)
+        flt = dict(base)
+        if if_rev is not None:
+            ctx.extra["if_rev"] = if_rev
+        soft = None if hard else self._soft_delete(ctx, flt)
+        if soft is None and self._cascade_rules():
+            return False
+        revision = next((f for f in self.meta.fields.values() if f.has(Revision)), None)
+        if revision is not None and if_rev is not None and revision.stored not in flt:
+            # a soft delete is an update, and the revision plugin has already added the condition
+            flt[revision.stored] = {"$in": [0, None]} if not if_rev else if_rev
+        with self._op("delete"):
+            if soft is not None:
+                matched = (await self.collection.update_one(flt, soft, **self._kw(session))).matched_count
+            else:
+                matched = (await self.collection.delete_one(flt, **self._kw(session))).deleted_count
+        if matched:
+            return True
+        if if_rev is not None:
+            with self._op("delete"):
+                exists = await self.collection.count_documents(base, limit=1, **self._kw(session))
+            if exists:
+                raise StaleDocumentError(f"{self.model.__name__}: revision {if_rev} is no longer current")
+        raise DocumentNotFound(f"{self.model.__name__} {id!r} does not exist")
+
     def _soft_delete(self, ctx: OpCtx, flt: dict[str, t.Any]) -> dict[str, t.Any] | None:
         for plugin in self.plugins:
             update = plugin.on_delete(ctx, flt)

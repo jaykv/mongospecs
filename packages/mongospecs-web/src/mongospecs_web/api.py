@@ -103,7 +103,7 @@ class Api:
 
     def allowed_methods(self, path: str) -> list[str]:
         """Methods the routes matching ``path`` accept (empty when no route matches)."""
-        methods = {route.method for route in self._routes() if route.pattern.match(path)}
+        methods = {route.method for route in self._candidates(path) if route.pattern.match(path)}
         if "GET" in methods:
             methods.add("HEAD")
         return sorted(methods | {"OPTIONS"}) if methods else []
@@ -111,27 +111,63 @@ class Api:
     def match(self, method: str, path: str) -> tuple[Route, dict[str, str]]:
         """Find the route for a request, or raise 404 / 405."""
         allowed: list[str] = []
-        for route in self._routes():
+        method = method.upper()
+        for route in self._candidates(path):
             found = route.pattern.match(path)
             if found is None:
                 continue
-            if route.method == method.upper():
+            if route.method == method:
                 return route, found.groupdict()
             allowed.append(route.method)
         if allowed:
             raise MethodNotAllowed(headers={"allow": ", ".join(sorted(set(allowed)))})
         raise NotFound("No such route.")
 
+    def _candidates(self, path: str) -> t.Sequence[Route]:
+        """The routes of the resource ``path`` points into: a dict lookup, then a few patterns.
+
+        Matching used to try every route of the API in turn, which grows with the API.
+        """
+        index: dict[str, tuple[Resource[t.Any], int, list[Route]]] | None = self.__dict__.get("_route_index")
+        if index is None:
+            index = self._build_index()
+        prefix = self.prefix
+        if prefix and not path.startswith(prefix + "/"):
+            return ()
+        rest = path[len(prefix) + 1 :]
+        # resource names may contain slashes, so try the longest known name first
+        segments = rest.rstrip("/").split("/")
+        for depth in range(min(len(segments), self.__dict__["_route_depth"]), 0, -1):
+            entry = index.get("/".join(segments[:depth]))
+            if entry is None:
+                continue
+            resource, count, routes = entry
+            if len(resource.operations) != count:  # an operation was added after the index was built
+                self.__dict__.pop("_route_index", None)
+                return self._candidates(path)
+            return routes
+        return ()
+
+    def _build_index(self) -> dict[str, tuple[Resource[t.Any], int, list[Route]]]:
+        index: dict[str, tuple[Resource[t.Any], int, list[Route]]] = {}
+        for resource in self.resources:
+            index[resource.name.strip("/")] = (resource, len(resource.operations), [])
+        for route in self._routes():
+            index[route.resource.name.strip("/")][2].append(route)  # keeps the literal-first order
+        self.__dict__["_route_index"] = index
+        self.__dict__["_route_depth"] = max((name.count("/") + 1 for name in index), default=1)
+        return index
+
     def _routes(self) -> list[Route]:
         cached: list[Route] | None = self.__dict__.get("_route_cache")
-        if cached is None or self.__dict__.get("_route_count") != sum(
-            len(r.operations) for r in self.resources
-        ):
+        count = sum(len(r.operations) for r in self.resources)
+        if cached is None or self.__dict__.get("_route_count") != count:
             cached = self.routes
             # Literal segments win over parameters: /{id}/publish before /{id}, /search before /{id}.
             cached.sort(key=lambda r: (-r.path.count("/"), r.path.count("{")))
             self.__dict__["_route_cache"] = cached
-            self.__dict__["_route_count"] = sum(len(r.operations) for r in self.resources)
+            self.__dict__["_route_count"] = count
+            self.__dict__.pop("_route_index", None)
         return cached
 
     async def run(self, route: Route, request: Request) -> Response:

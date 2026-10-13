@@ -194,3 +194,30 @@ async def test_upsert_revision_is_documented_behaviour(m, registry):
 
 def test_unused_names_keep_imports_honest():
     assert Index and SpecConfig and DocumentNotFound and MongoSpecsError and t
+
+
+@pytest.mark.parametrize("mode", ["tracked", "lean", "raw"])
+async def test_cursor_pages_include_documents_without_the_sort_key(m, registry, mode):
+    """A missing or null sort key used to end the walk early or skip documents."""
+    await m.User.insert_many(
+        [m.User(name=f"u{i}", email=f"{i}@x.io" if i % 2 else None, age=i) for i in range(6)]
+    )
+    # no stored age at all: the model reads its default (0), the server sorts it as "no value"
+    await m.User.collection().insert_many([{"name": "no-age-1"}, {"name": "no-age-2"}])
+    for sort, first, last in (
+        ("email", "no-age-1", "u5"),
+        ("-email", "u5", "u4"),
+        ("age", "no-age-1", "u5"),
+        ("-age", "u5", "no-age-2"),
+    ):
+        query = getattr(m.User.find().sort(sort, "name"), mode)()
+        seen, cursor = [], None
+        while True:
+            page = await query.page(3, after=cursor)
+            seen += [u["name"] if isinstance(u, dict) else u.name for u in page]
+            assert len(seen) <= 12, f"{sort}: pagination does not terminate: {seen}"
+            if not page.has_next:
+                break
+            cursor = page.next_cursor
+        assert len(seen) == len(set(seen)) == 8, (sort, seen)
+        assert (seen[0], seen[-1]) == (first, last), (sort, seen)

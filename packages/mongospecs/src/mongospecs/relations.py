@@ -14,6 +14,7 @@ Also here: cascade rules, ``$graphLookup`` traversal and ``$unionWith`` reads.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import typing as t
 from dataclasses import dataclass
@@ -326,40 +327,47 @@ async def load_batched(
     """Resolve includes with one query per relation (per target model) for the whole batch."""
     if not items:
         return
+    if session is None and len(includes) > 1:
+        # Independent relations: one round trip each, all in flight together. With a session
+        # they stay sequential, because a session cannot run two operations at once.
+        await asyncio.gather(*(_load_one(manager, items, include, mode, session) for include in includes))
+        return
     for include in includes:
-        info = _relation(manager, include)
-        targets = manager.meta.ref_targets(include.name)
-        if info.backref is not None:
-            await _load_backref(manager, items, include, info, targets[0].model, mode, session)
+        await _load_one(manager, items, include, mode, session)
+
+
+async def _load_one(
+    manager: Manager[t.Any], items: list[t.Any], include: Include, mode: str, session: t.Any
+) -> None:
+    info = _relation(manager, include)
+    targets = manager.meta.ref_targets(include.name)
+    if info.backref is not None:
+        await _load_backref(manager, items, include, info, targets[0].model, mode, session)
+        return
+    assert info.ref is not None
+    ids: dict[t.Any, t.Any] = {}
+    for item in items:
+        value = item.get(info.stored) if isinstance(item, dict) else getattr(item, info.name)
+        if value is None:
             continue
-        assert info.ref is not None
-        ids: dict[t.Any, t.Any] = {}
-        for item in items:
-            value = item.get(info.stored) if isinstance(item, dict) else getattr(item, info.name)
-            if value is None:
-                continue
-            values = (
-                value
-                if info.ref.shape == "list"
-                else value.values()
-                if info.ref.shape == "dict"
-                else (value,)
-            )
-            for v in values:
-                if v is not None:
-                    ids[_key(v)] = id_of(v)
-        by_id: dict[t.Any, t.Any] = {}
-        if ids:
-            for target_meta in targets:
-                target = _target(manager, target_meta.model)
-                children = await _child_query(
-                    target, include, {"_id": {"$in": list(ids.values())}}, mode, session
-                ).all()
-                for child in children:
-                    by_id[_key(_item_id(child))] = child
-        model = targets[0].model if len(targets) == 1 else None
-        for item in items:
-            _attach_forward(item, info, by_id, model, include.per_parent_limit)
+        values = (
+            value if info.ref.shape == "list" else value.values() if info.ref.shape == "dict" else (value,)
+        )
+        for v in values:
+            if v is not None:
+                ids[_key(v)] = id_of(v)
+    by_id: dict[t.Any, t.Any] = {}
+    if ids:
+        for target_meta in targets:
+            target = _target(manager, target_meta.model)
+            children = await _child_query(
+                target, include, {"_id": {"$in": list(ids.values())}}, mode, session
+            ).all()
+            for child in children:
+                by_id[_key(_item_id(child))] = child
+    model = targets[0].model if len(targets) == 1 else None
+    for item in items:
+        _attach_forward(item, info, by_id, model, include.per_parent_limit)
 
 
 async def _load_backref(
@@ -389,9 +397,33 @@ async def _load_backref(
         for item in items:
             _attach_backref(item, info, counts.get(_key(_item_id(item)), 0))
         return
-    children = await _child_query(
-        target, include, {fk: {"$in": parent_ids}}, mode, session, extra_select=(fk_attr,)
-    ).all()
+    wanted: dict[str, t.Any] = {fk: {"$in": parent_ids}}
+    fk_info = target.meta.fields.get(fk_attr)
+    single = fk_info is not None and fk_info.ref is not None and fk_info.ref.shape == "one"
+    if include.per_parent_limit and include.limit is None and single:
+        # Choose the children on the server: at most N ids per parent come back, and only
+        # those documents are then fetched. Fetching every child to keep N per parent would
+        # transfer the whole relation for a parent with many children.
+        pipeline = [{"$match": wanted}]
+        if include.match is not None:
+            pipeline.append({"$match": compile_filter(include.match, target.meta)})
+        order = compile_sort(include.sort, target.meta) if include.sort else [("_id", 1)]
+        pipeline.append({"$sort": dict(order)})
+        pipeline.append(
+            {
+                "$group": {
+                    "_id": f"${fk}",
+                    "ids": {"$firstN": {"input": "$_id", "n": include.per_parent_limit}},
+                }
+            }
+        )
+        chosen = [i async for row in target.aggregate(pipeline, session=session) for i in row["ids"]]
+        wanted = {"_id": {"$in": chosen}}
+        if not chosen:
+            for item in items:
+                _attach_backref(item, info, [])
+            return
+    children = await _child_query(target, include, wanted, mode, session, extra_select=(fk_attr,)).all()
     grouped: dict[t.Any, list[t.Any]] = {}
     for child in children:
         value = child.get(fk) if isinstance(child, dict) else getattr(child, fk_attr)

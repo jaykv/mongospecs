@@ -63,17 +63,15 @@ ready-made listeners. With the Sentry SDK, database work shows up as `Account.in
 
 ## Errors
 
-mongospecs raises its own errors and keeps the driver error as `__cause__`.
+mongospecs raises its own errors and keeps the driver error as `__cause__`. See [Errors](errors.md)
+for each one, what to do about it and what an API client sees.
 
-| Error | When |
-|---|---|
-| `ValidationError` | input does not fit the model |
-| `QueryError` | unknown field, uncastable value, untrusted operator |
-| `DocumentNotFound` | an acknowledged read or write matched nothing |
-| `StaleDocumentError` | a revision check failed |
-| `DuplicateKeyError` | unique index violated; `.fields` names the values |
-| `OperationTimeout`, `ConnectionFailed`, `PoolTimeout` | the database is slow or unreachable |
-| `DocumentTooLarge` | a document or pipeline result exceeded 16MB |
+## One registry per model, or explicit managers
+
+`Model.find()` and the other class methods use the registry the model is bound to, and a model
+class can be bound to only one open registry at a time. When you need the same model on several
+registries, or one registry per thread, ask the registry for a manager instead:
+`registry.manager(Article).find(...)`. Documents loaded through a manager are saved through it.
 
 ## More than one database
 

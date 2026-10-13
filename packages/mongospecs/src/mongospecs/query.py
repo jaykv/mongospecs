@@ -15,13 +15,13 @@ from dataclasses import dataclass
 import bson
 
 from mongospecs import tracking
-from mongospecs.errors import DocumentNotFound, QueryError
+from mongospecs.errors import DocumentNotFound, QueryError, ValidationError
 from mongospecs.expr import SortInput, and_filters, compile_filter, compile_sort
 from mongospecs.meta import meta_of
 from mongospecs.updates import UpdateOp
 
 if t.TYPE_CHECKING:
-    from mongospecs.manager import Manager
+    from mongospecs.manager import Manager, UpdateCount
     from mongospecs.relations import Include
 
 __all__ = ["Page", "Query"]
@@ -65,6 +65,8 @@ class Query(t.Generic[T]):
         "_conditions",
         "_fail",
         "_includes",
+        "_invalid",
+        "_keys",
         "_limit",
         "_manager",
         "_mode",
@@ -91,6 +93,7 @@ class Query(t.Generic[T]):
         session: t.Any = None,
         options: t.Mapping[str, t.Any] | None = None,
         fail: bool = False,
+        invalid: str = "raise",
     ) -> None:
         self._manager = manager
         self._conditions = conditions
@@ -104,11 +107,30 @@ class Query(t.Generic[T]):
         self._session = session
         self._options: dict[str, t.Any] = dict(options or {})
         self._fail = fail
+        self._invalid = invalid
+        self._keys: dict[int, t.Any] | None = None
 
     def _clone(self, **changes: t.Any) -> Query[T]:
-        state = {name.lstrip("_"): getattr(self, name) for name in self.__slots__ if name != "_manager"}
-        state.update(changes)
-        return type(self)(self._manager, **state)
+        # A query is cloned several times on every call path; copying the slots is much
+        # cheaper than going through __init__ with a dozen keyword arguments.
+        new: Query[T] = object.__new__(type(self))
+        new._manager = self._manager
+        new._conditions = self._conditions
+        new._sort = self._sort
+        new._skip = self._skip
+        new._limit = self._limit
+        new._select = self._select
+        new._includes = self._includes
+        new._mode = self._mode
+        new._unscoped = self._unscoped
+        new._session = self._session
+        new._options = self._options
+        new._fail = self._fail
+        new._invalid = self._invalid
+        new._keys = None
+        for name, value in changes.items():
+            setattr(new, "_" + name, dict(value) if name == "options" else value)
+        return new
 
     # -- builders --------------------------------------------------------------
 
@@ -157,8 +179,11 @@ class Query(t.Generic[T]):
         ``path`` may be nested (``"author.company"``). ``limit`` caps the related
         documents overall; ``per_parent_limit`` caps them per parent document.
         """
-        from mongospecs.relations import add_include
+        from mongospecs.relations import add_include, check_include
 
+        if strategy not in ("auto", "lookup", "batch"):
+            raise QueryError(f"include strategy must be 'auto', 'lookup' or 'batch', got {strategy!r}")
+        check_include(self._manager.meta, path)
         return self._clone(
             includes=add_include(
                 self._includes,
@@ -175,6 +200,18 @@ class Query(t.Generic[T]):
                 strategy=strategy,
             )
         )
+
+    def on_invalid(self, action: t.Literal["raise", "skip", "raw"]) -> Query[T]:
+        """What to do with a stored document that does not fit the model.
+
+        ``"raise"`` (the default) fails the whole read with :class:`ValidationError`.
+        ``"skip"`` leaves such documents out. ``"raw"`` returns them as plain dicts in
+        place, so they can be inspected or repaired; relations are not loaded for them.
+        Skipped documents still count towards ``limit()`` and page sizes.
+        """
+        if action not in ("raise", "skip", "raw"):
+            raise QueryError(f"on_invalid takes 'raise', 'skip' or 'raw', got {action!r}")
+        return self._clone(invalid=action)
 
     def tracked(self) -> Query[T]:
         """Return model instances with change tracking (the default)."""
@@ -254,7 +291,8 @@ class Query(t.Generic[T]):
                 keys[meta.disc_key] = None
             projection = {k: 1 for k in keys}
             return projection, frozenset(k.partition(".")[0] for k in keys) | {"_id"}
-        excluded = [*deferred, *exclude]
+        required = set(needed)
+        excluded = [key for key in (*deferred, *exclude) if key.partition(".")[0] not in required]
         if not excluded:
             return None, None
         return {k: 0 for k in excluded}, meta.stored_keys - {k for k in excluded if "." not in k}
@@ -268,6 +306,8 @@ class Query(t.Generic[T]):
         manager = self._manager
         lookups, batched = plan_includes(manager, self._includes, self._mode)
         needed = [manager.meta.fields[i.name].stored for i in self._includes if i.name in manager.meta.refs]
+        # Sort keys are always fetched: cursor pagination builds the next cursor from them.
+        needed += [key.partition(".")[0] for key, _ in self._sort_spec()]
         projection, partial = self._projection(needed)
         plan: dict[str, t.Any] = {
             "filter": self._filter(),
@@ -340,30 +380,47 @@ class Query(t.Generic[T]):
         raw_bson = mode == "tracked" and not lookups
         options = manager.registry._codec_options
 
+        invalid = self._invalid
+        stored_keys = self._keys
+
         async def flush(raws: list[t.Any]) -> list[t.Any]:
-            if raw_bson:
-                items: list[t.Any] = []
-                decode = meta.decode
-                for item in raws:
-                    data = item.raw
-                    doc = decode(bson.decode(data, options))
-                    tracking.track(doc, data, manager, partial)
-                    items.append(doc)
+            misfits: list[tuple[int, t.Any]] = []  # (position, raw document) kept for on_invalid("raw")
+            joined = [pop_lookups(raw, lookups) for raw in raws] if lookups else None
+            if mode == "raw":
+                items: list[t.Any] = raws
             else:
-                joined = [pop_lookups(raw, lookups) for raw in raws] if lookups else None
-                if mode == "raw":
-                    items = raws
-                else:
-                    items = []
-                    for raw in raws:
-                        doc = meta.decode(raw)
-                        if mode == "tracked":
-                            tracking.track(doc, meta_of(type(doc)).encode(doc), manager, partial)
-                        items.append(doc)
+                items = []
+                kept: list[t.Any] = []
+                for position, item in enumerate(raws):
+                    data = item.raw if raw_bson else None
+                    plain = bson.decode(data, options) if data is not None else item
+                    try:
+                        doc = meta.decode(plain)
+                    except ValidationError:
+                        if invalid == "raise":
+                            raise
+                        if invalid == "raw":
+                            misfits.append((position, plain))
+                        continue
+                    if stored_keys is not None:
+                        stored_keys[id(doc)] = plain
+                    if data is not None:
+                        tracking.track(doc, data, manager, partial)
+                    elif mode == "tracked":
+                        tracking.track(doc, meta_of(type(doc)).encode(doc), manager, partial)
+                    items.append(doc)
+                    if joined is not None:
+                        kept.append(joined[position])
                 if joined is not None:
-                    attach_lookups(manager, items, joined, lookups, mode)
+                    joined = kept
+            if joined is not None:
+                attach_lookups(manager, items, joined, lookups, mode)
             if batched:
                 await load_batched(manager, items, batched, mode, self._session)
+            if misfits:  # put the documents that did not fit back where the server returned them
+                raw_at = dict(misfits)
+                valid = iter(items)
+                return [raw_at[i] if i in raw_at else next(valid) for i in range(len(raws))]
             return items
 
         with manager._op("find"):
@@ -492,8 +549,9 @@ class Query(t.Generic[T]):
         if self._skip or self._limit or self._sort:
             raise QueryError(f"{what} applies to every match; sort, skip and limit are not supported")
 
-    async def update(self, *ops: UpdateOp, **fields: t.Any) -> int:
-        """Atomically update every match. Returns the number of documents modified.
+    async def update(self, *ops: UpdateOp, **fields: t.Any) -> UpdateCount:
+        """Atomically update every match. Returns the number of documents modified
+        (an ``int`` that also carries ``.matched`` and ``.modified``).
 
         Documents are not loaded, so document hooks do not run; plugins still
         rewrite the command (timestamps, revisions, scopes).
@@ -525,7 +583,8 @@ class Query(t.Generic[T]):
         Without ``number`` this is cursor (keyset) pagination: pass the previous
         page's ``next_cursor`` as ``after``. The sort is made total by appending
         ``_id``, so the index serving it should end in ``_id`` (``Index("price", "id")``);
-        otherwise the server sorts in memory. Sort fields should not be null.
+        otherwise the server sorts in memory. Documents without a value for a sort
+        field are paged too: they come first ascending and last descending.
         With ``number`` (1-based) it is
         offset pagination. ``total=True`` adds a count of all matches.
         """
@@ -533,7 +592,6 @@ class Query(t.Generic[T]):
             raise QueryError("page size must be >= 1")
         if number is not None and after is not None:
             raise QueryError("use either number (offset pagination) or after (cursor pagination)")
-        count_task: t.Awaitable[int] | None = self._clone(skip=0, limit=0, sort=()).count() if total else None
 
         if number is not None:
             if number < 1:
@@ -551,7 +609,13 @@ class Query(t.Generic[T]):
 
                 query = query.filter(Trusted(_keyset_filter(sort, _decode_cursor(after, len(sort)))))
 
+        if number is None and query._mode != "raw":
+            # The cursor must hold the sort keys as they are stored. A model has its
+            # default where the stored document has no key, which sorts elsewhere.
+            query._keys = {}
         total_count: int | None
+        # Created only now: everything above can raise, and a coroutine nobody awaits is a warning.
+        count_task: t.Awaitable[int] | None = self._clone(skip=0, limit=0, sort=()).count() if total else None
         if count_task is not None and self._session is None:
             items, total_count = await asyncio.gather(query.all(), count_task)
         else:
@@ -561,7 +625,11 @@ class Query(t.Generic[T]):
         items = items[:size]
         next_cursor = None
         if number is None and has_next and items:
-            next_cursor = _encode_cursor(self._sort_values(items[-1], query._sort_spec()))
+            last = items[-1]
+            stored = query._keys.get(id(last)) if query._keys is not None else None
+            next_cursor = _encode_cursor(
+                self._sort_values(last if stored is None else stored, query._sort_spec())
+            )
         return Page(items, size, has_next, next_cursor, number, total_count)
 
     def _sort_values(self, item: t.Any, sort: list[tuple[str, int]]) -> list[t.Any]:
@@ -629,10 +697,20 @@ def _decode_cursor(token: str, expected: int) -> list[t.Any]:
 
 
 def _keyset_filter(sort: list[tuple[str, int]], values: list[t.Any]) -> dict[str, t.Any]:
-    """Documents strictly after ``values`` in ``sort`` order."""
+    """Documents strictly after ``values`` in ``sort`` order.
+
+    A missing or null sort key sorts before every value, so it comes first ascending and
+    last descending; ``{key: None}`` matches both the missing key and an explicit null.
+    """
     branches: list[dict[str, t.Any]] = []
     for i, (key, direction) in enumerate(sort):
-        branch: dict[str, t.Any] = {sort[j][0]: values[j] for j in range(i)}
-        branch[key] = {"$gt" if direction == 1 else "$lt": values[i]}
-        branches.append(branch)
+        prefix: dict[str, t.Any] = {sort[j][0]: values[j] for j in range(i)}
+        value = values[i]
+        if direction == 1:
+            # after "no value" comes every value; after a value come the larger ones
+            branches.append({**prefix, key: {"$ne": None} if value is None else {"$gt": value}})
+        elif value is not None:
+            branches.append({**prefix, key: {"$lt": value}})
+            branches.append({**prefix, key: None})  # documents without a value come last
+        # descending and already among the documents without a value: only ties remain
     return branches[0] if len(branches) == 1 else {"$or": branches}

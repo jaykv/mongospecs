@@ -50,6 +50,11 @@ await article.save()
 assert article.changes() == {} and article.rev == 1
 ```
 
+A document you did not get from a tracked read has no snapshot: a `lean()` result, a
+`copy.copy()` or a deep copy of a tracked document, or one that was unpickled. Saving one tries to
+insert it and fails with a `DuplicateKeyError` that says so. Use a tracked read, or
+`Model.hydrate(raw)` to adopt a raw document.
+
 Nested documents are diffed into dotted paths. A changed list is sent whole; for element-level
 changes that must not overwrite concurrent writers, use the atomic operators below.
 
@@ -85,6 +90,9 @@ except StaleDocumentError:
 assert stale.title == "Final v2"
 ```
 
+A document created by `upsert()` starts at revision 1, one created by `insert()` at 0: an upsert
+is an update, and every update increments the revision.
+
 ## Soft delete
 
 With a `DeletedAt` field, `delete()` hides the document instead of removing it.
@@ -115,11 +123,24 @@ assert (await Article.find(Q.title == "bulk 0").one()).views == 6
 `insert_many(..., ordered=False)` attempts every document and reports failures per item instead of
 raising on the first.
 
+The writes in a `bulk_save` are independent. If some fail (a duplicate key, a revision that moved
+on), the rest are still written and are in sync in memory; the error raised afterwards lists the
+documents that were not written in `.failed`.
+
+`Model.find(...).update(...)` returns the number of documents modified, as an `int` that also
+carries `.matched` and `.modified`.
+
 ## Transactions
 
 `registry.transaction(fn)` commits when `fn` returns. The driver re-runs `fn` on transient errors,
 so it must be safe to call twice. If the transaction aborts, documents written inside it are put
 back to their previous in-memory state.
+
+**Transactions do not nest.** MongoDB has no savepoints: a transaction started inside another is
+a separate one that commits on its own and stays committed if the outer one aborts. Calling
+`registry.transaction()` inside a running one raises `TransactionError`; pass the outer `tx` to
+the code that needs it. When a separate commit is what you want (an audit record that must
+survive a rollback), say so: `registry.transaction(fn, independent=True)`.
 
 ```python
 landing = await Article.find(Q.title == "Landing").one()
@@ -143,11 +164,27 @@ assert landing.rev == 1 and landing.changes() == {"$set": {"tags": ["page", "pro
 Sessions are always explicit: pass `session=tx` to every operation inside the function. For manual
 control use `async with registry.session() as s, s.start_transaction(): ...` (no automatic retry).
 
+## Validation
+
+Every write is validated. `Model.update(...)` checks the values it is given; `insert()`, `save()`,
+`insert_many()` and `bulk_save()` check the document as it is about to be stored, so a wrongly
+typed attribute is an error at the write and not when the document is next read. `validate=False`
+on a call, or `SpecConfig(validate_writes=False)` on a model, skips that check where its few
+microseconds matter (see [Choosing a backend](backends.md)).
+
 ```python
 try:
     await Article.update(landing.id, title=123)
 except Exception as exc:
     assert type(exc).__name__ == "ValidationError"
+
+draft = Article(title="Draft")
+draft.views = "many"  # msgspec does not check this
+try:
+    await draft.insert()
+except Exception as exc:
+    assert type(exc).__name__ == "ValidationError" and exc.errors[0]["field"] == "views"
+assert draft.is_new and await Article.count(Q.title == "Draft") == 0
 
 try:
     await Article.update("0" * 24, title="nobody")

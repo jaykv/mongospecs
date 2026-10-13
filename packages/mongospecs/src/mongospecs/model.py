@@ -135,8 +135,9 @@ class Document:
         *,
         ordered: bool = True,
         session: t.Any = None,
+        validate: bool | None = None,
     ) -> BulkResult[T]:
-        return await cls._manager().insert_many(docs, ordered=ordered, session=session)
+        return await cls._manager().insert_many(docs, ordered=ordered, session=session, validate=validate)
 
     @classmethod
     async def bulk_write(
@@ -145,8 +146,10 @@ class Document:
         return await cls._manager().bulk_write(operations, ordered=ordered, session=session)
 
     @classmethod
-    async def bulk_save(cls: type[T], docs: t.Iterable[T], *, session: t.Any = None) -> int:
-        return await cls._manager().bulk_save(docs, session=session)
+    async def bulk_save(
+        cls: type[T], docs: t.Iterable[T], *, session: t.Any = None, validate: bool | None = None
+    ) -> int:
+        return await cls._manager().bulk_save(docs, session=session, validate=validate)
 
     @classmethod
     def aggregate(
@@ -224,16 +227,24 @@ class Document:
             return {"$set": self._own_manager().meta.encode(self)}
         return self._own_manager()._delta(self, state)[1]
 
-    async def insert(self: T, *, session: t.Any = None) -> T:
-        return t.cast(T, await self._own_manager().insert(self, session=session))
+    async def insert(self: T, *, session: t.Any = None, validate: bool | None = None) -> T:
+        """Insert this document. It is checked against the model first, so a wrongly typed value
+        is a ``ValidationError`` here and not when the document is next read; ``validate=False``
+        skips the check (as does ``SpecConfig(validate_writes=False)`` for the whole model)."""
+        return t.cast(T, await self._own_manager().insert(self, session=session, validate=validate))
 
-    async def save(self: T, *, session: t.Any = None) -> T:
-        """Insert a new document, or send only the fields that changed since it was loaded."""
-        return t.cast(T, await self._own_manager().save(self, session=session))
+    async def save(self: T, *, session: t.Any = None, validate: bool | None = None) -> T:
+        """Insert a new document, or send only the fields that changed since it was loaded.
+        Validated like :meth:`insert`, and only when there is something to send."""
+        return t.cast(T, await self._own_manager().save(self, session=session, validate=validate))
 
-    async def delete(self, *, session: t.Any = None, hard: bool = False) -> None:
-        """Delete this document (a soft delete when the model has a ``DeletedAt`` field, unless ``hard``)."""
-        await self._own_manager().delete_document(self, session=session, hard=hard)
+    async def delete(self, *, session: t.Any = None, hard: bool = False, if_rev: int | None = None) -> None:
+        """Delete this document (a soft delete when the model has a ``DeletedAt`` field, unless ``hard``).
+
+        With a ``Revision`` field the delete fails with ``StaleDocumentError`` if the document
+        changed since it was loaded (or since revision ``if_rev``).
+        """
+        await self._own_manager().delete_document(self, session=session, hard=hard, if_rev=if_rev)
 
     async def reload(self: T, *, session: t.Any = None) -> T:
         """Refresh this document in place from the database."""

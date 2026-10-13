@@ -19,7 +19,7 @@ from mongospecs import (
     UpdatedAt,
     computed,
 )
-from mongospecs_web import Api, Create, Delete, Get, List, Offset, Patch, Resource, Unauthorized
+from mongospecs_web import Api, Create, Cursor, Delete, Get, List, Offset, Patch, Resource, Unauthorized
 from mongospecs_web.plugs.asgi import AsgiApp
 
 BACKENDS = ("msgspec", "pydantic", "attrs")
@@ -98,10 +98,17 @@ async def app(request, make_registry):
     api = Api(
         Resource(Author, ops=[List, Get, Create, Patch]),
         Resource(
-            Story, ops=[List, Get, Create, Patch, Delete], include=["author", "reactions", "reaction_count"]
+            Story,
+            ops=[List, Get, Create, Patch, Delete],
+            include=["author", "reactions", "reaction_count"],
+            page=Cursor(total=True),
         ),
         Resource(
-            Story, name="my-stories", ops=[List, Get, Patch, Delete], scope=mine, page=Offset(default=10)
+            Story,
+            name="my-stories",
+            ops=[List, Get, Patch, Delete],
+            scope=mine,
+            page=Offset(default=10, total=True, max_offset=50),
         ),
         prefix="/v1",
         authenticate=authenticate,
@@ -310,3 +317,57 @@ async def test_body_size_limit_and_lifespan(make_registry):
     await asgi({"type": "lifespan"}, receive, send)
     assert sent == ["lifespan.startup.complete", "lifespan.shutdown.complete"]
     assert not registry.is_open
+
+
+async def test_delete_is_conditional_and_scoped_at_the_write(app):
+    client, (Author, Story, Reaction), api, registry = app
+    ann = await Author(name="Ann", email="a").insert()
+    story = await Story(title="s", author=ann).insert()
+    as_ann = {"x-user": str(ann.id)}
+    # If-Match on DELETE: a stale revision is refused, the current one is accepted
+    await client.patch(f"/v1/stories/{story.id}", json={"words": 5})
+    stale = await client.delete(f"/v1/stories/{story.id}", headers={"if-match": '"0"'})
+    assert stale.status_code == 412
+    assert (await client.get(f"/v1/stories/{story.id}")).status_code == 200
+    # the row scope is part of the delete's own filter, not only of the lookup before it
+    events = []
+    observer = type(registry)("mongodb://localhost:27117/?replicaSet=rs0", on_command=events.append)
+    await observer.open()
+    try:
+        from mongospecs_web.backend import MongoBackend
+
+        backend = MongoBackend(Story, observer.manager(Story, db=registry.database().name))
+        await backend.delete(str(story.id), scope={"author": ann.id}, if_rev=1)
+    finally:
+        await observer.close()
+    (write,) = [e.command for e in events if e.phase == "started" and e.command_name == "update"]
+    # the id, the revision, the row scope and the soft-delete scope, all in the one write
+    assert write["updates"][0]["q"] == {"_id": story.id, "rev": 1, "author": ann.id, "deleted_at": None}
+    sent = [e.command_name for e in events if e.phase == "started" and e.command_name != "endSessions"]
+    assert sent == ["update"]  # one conditional write, no read before it
+    assert (await client.get(f"/v1/my-stories/{story.id}", headers=as_ann)).status_code == 404  # soft-deleted
+
+
+async def test_listing_limits(app):
+    client, (Author, Story, Reaction), api, registry = app
+    ann = await Author(name="Ann", email="a").insert()
+    await Story.insert_many([Story(title=f"s{i}", author=ann) for i in range(3)])
+    as_ann = {"x-user": str(ann.id)}
+    assert (await client.get("/v1/my-stories?page=6&limit=10", headers=as_ann)).status_code == 200
+    deep = await client.get("/v1/my-stories?page=7&limit=10", headers=as_ann)
+    assert deep.status_code == 400 and "too deep" in deep.json()["detail"]
+    assert (await client.get("/v1/authors?total=true")).status_code == 400  # totals are opt-in per resource
+    # reads made for a request carry a time limit even when nothing else sets one
+    events = []
+    observer = type(registry)("mongodb://localhost:27117/?replicaSet=rs0", on_command=events.append)
+    await observer.open()
+    try:
+        from mongospecs_web.backend import ListQuery, MongoBackend
+
+        manager = observer.manager(Story, db=registry.database().name)
+        await MongoBackend(Story, manager).list(ListQuery(), scope=None)
+        await MongoBackend(Story, manager, max_time_ms=None).list(ListQuery(), scope=None)
+    finally:
+        await observer.close()
+    finds = [e.command for e in events if e.phase == "started" and e.command_name == "find"]
+    assert finds[0]["maxTimeMS"] == 10_000 and "maxTimeMS" not in finds[1]

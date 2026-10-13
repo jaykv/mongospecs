@@ -113,10 +113,21 @@ def problem(exc: BaseException) -> HTTPError:
             "A resource with the same unique value already exists.",
             errors=[{"field": f, "message": "must be unique"} for f in fields] or None,
         )
+    if isinstance(exc, me.EncodingError):
+        # A value that passed validation but has no BSON form (an integer beyond 64 bits inside
+        # an untyped field, say). The request is at fault, so this is not a 500.
+        return Unprocessable("The request contains a value that cannot be stored.")
     if isinstance(exc, me.QueryError):
         return BadRequest(str(exc))
     if isinstance(exc, me.OperationTimeout):
         return HTTPError("The database did not answer in time.", status=504, title="Gateway Timeout")
+    if isinstance(exc, me.PoolTimeout):
+        return HTTPError(
+            "The server is busy: no database connection became free in time.",
+            status=503,
+            title="Service Unavailable",
+            headers={"retry-after": "1"},
+        )
     if isinstance(exc, me.ConnectionFailed):
         return HTTPError("The database is unavailable.", status=503, title="Service Unavailable")
     return HTTPError()

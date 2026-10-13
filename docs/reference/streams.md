@@ -1,3 +1,0 @@
-# mongospecs.streams
-
-::: mongospecs.streams

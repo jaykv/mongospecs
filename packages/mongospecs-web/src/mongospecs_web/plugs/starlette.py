@@ -12,18 +12,21 @@ from starlette.routing import BaseRoute
 from starlette.routing import Route as StarletteRoute
 
 from mongospecs_web.api import Api, Route
+from mongospecs_web.errors import HTTPError
 from mongospecs_web.resource import Request, Response
 
 __all__ = ["lifespan", "mount", "routes", "to_request", "to_response"]
 
 
-async def to_request(request: StarletteRequest) -> Request:
+async def to_request(api: Api, request: StarletteRequest) -> Request:
+    """Translate a Starlette request. The body is read under the API's size limit."""
+    headers = {k.lower(): v for k, v in request.headers.items()}
     return Request(
         request.method,
         {k: str(v) for k, v in request.path_params.items()},
         list(request.query_params.multi_items()),
-        {k.lower(): v for k, v in request.headers.items()},
-        await request.body(),
+        headers,
+        await api.read_body(headers, request.stream()),
         None,
         request,
     )
@@ -38,18 +41,22 @@ def to_response(response: Response) -> StarletteResponse:
 
 def _endpoint(api: Api, route: Route) -> t.Callable[[StarletteRequest], t.Awaitable[StarletteResponse]]:
     async def endpoint(request: StarletteRequest) -> StarletteResponse:
-        return to_response(await api.run(route, await to_request(request)))
+        try:
+            neutral = await to_request(api, request)
+        except HTTPError as exc:
+            return to_response(Response.error(exc))
+        return to_response(await api.run(route, neutral))
 
     return endpoint
 
 
-def routes(api: Api, *, openapi: bool = True) -> list[BaseRoute]:
+def routes(api: Api, *, openapi: bool | None = None) -> list[BaseRoute]:
     """Starlette routes for every operation of the API (plus ``openapi.json``)."""
     out: list[BaseRoute] = [
         StarletteRoute(route.path, _endpoint(api, route), methods=[route.method], name=route.name)
         for route in api._routes()
     ]
-    if openapi:
+    if api.expose_openapi if openapi is None else openapi:
 
         async def spec(request: StarletteRequest) -> StarletteResponse:
             return JSONResponse(api.openapi())
@@ -58,7 +65,7 @@ def routes(api: Api, *, openapi: bool = True) -> list[BaseRoute]:
     return out
 
 
-def mount(app: t.Any, api: Api, *, openapi: bool = True) -> None:
+def mount(app: t.Any, api: Api, *, openapi: bool | None = None) -> None:
     """Add the API's routes to an existing Starlette application."""
     app.router.routes.extend(routes(api, openapi=openapi))
 

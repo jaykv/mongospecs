@@ -56,6 +56,8 @@ async with Registry("mongodb://localhost/app", models=[Dragon]):
 
 - Reads are validated. A stored document that does not fit the model raises `ValidationError`
   instead of producing a half-typed object. `SpecConfig(upcast=...)` migrates old shapes on read.
+- Writes are validated too: `insert()` and `save()` refuse a document that does not fit its
+  model. `validate=False` or `SpecConfig(validate_writes=False)` skips the check.
 - Unknown field names in conditions and updates raise `QueryError`.
 - Raw dict filters may not contain operators unless wrapped in `trusted(...)`.
 - Reference fields hold a `Ref` object (`.id`, `.doc`), not a bare id or a document.

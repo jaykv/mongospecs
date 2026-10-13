@@ -94,6 +94,38 @@ def _all_subclasses(cls: type) -> list[type]:
     return out
 
 
+RESERVED_FIELD_NAMES: frozenset[str] = frozenset(
+    {
+        "after",
+        "aggregate",
+        "before",
+        "bulk_save",
+        "bulk_write",
+        "changes",
+        "collection",
+        "count",
+        "delete",
+        "estimated_count",
+        "exists",
+        "find",
+        "get",
+        "hydrate",
+        "insert",
+        "insert_many",
+        "is_new",
+        "reload",
+        "save",
+        "scope",
+        "update",
+        "upsert",
+        "using",
+        "watch",
+    }
+)
+"""Attribute names a model field may not use: each is part of the ``Document`` API, and a field
+of the same name would replace it on the class (``Model.count()`` would stop working)."""
+
+
 class ModelMeta:
     """Everything mongospecs derives from a model class."""
 
@@ -108,6 +140,13 @@ class ModelMeta:
         self.fields: dict[str, FieldInfo] = self.codec.fields(model)
         if "id" not in self.fields:
             raise ConfigurationError(f"{model.__name__} has no `id` field")
+        shadowed = sorted(set(self.fields) & RESERVED_FIELD_NAMES)
+        if shadowed:
+            raise ConfigurationError(
+                f"{model.__name__}: field name {shadowed[0]!r} shadows the document API "
+                f"({model.__name__}.{shadowed[0]} is part of mongospecs). Rename the attribute and keep the "
+                f"stored key with Annotated[..., Alias({shadowed[0]!r})]."
+            )
         self.id = self.fields["id"]
         self.by_stored: dict[str, FieldInfo] = {f.stored: f for f in self.fields.values()}
         self.deferred: tuple[str, ...] = tuple(f.stored for f in self.fields.values() if f.has(Deferred))
@@ -119,6 +158,29 @@ class ModelMeta:
         self.stored_keys: frozenset[str] = frozenset(
             f.stored for f in self.fields.values() if not f.transient
         )
+
+        # A sparse index still indexes an explicit null, so a unique sparse index over a field
+        # that stores None as null lets only one document be without a value.
+        absent = self.codec.absent_when_none(model)
+        defaults = self.codec.defaults(model)
+        for index in self.config.indexes:
+            if not (index.unique and index.sparse):
+                continue
+            for key, _ in index.keys:
+                f = self.fields.get(key.partition(".")[0])
+                if (
+                    f is not None
+                    and f.name in defaults
+                    and defaults[f.name] is None
+                    and f.stored not in absent
+                ):
+                    raise ConfigurationError(
+                        f"{model.__name__}.{f.name} stores None as null (StoreNone or none='store') and is a key "
+                        "of a unique sparse index. A sparse index still indexes null, so a second document "
+                        "without a value would be a duplicate. Use a partial index instead, for example "
+                        f"Index({f.name!r}, unique=True, partial={{{f.name!r}: {{'$type': 'string'}}}}), "
+                        "or mark the field OmitNone."
+                    )
 
         for f in self.fields.values():
             if f.has(Deferred) and f.required:
@@ -202,15 +264,25 @@ class ModelMeta:
         if loose is None:
             loose = self._loose[info.name] = loosen(info.type)
         try:
-            return to_bson(self.validate_type(loose, value, lax=lax))
+            return to_bson(self._coerce(loose, value, lax))
         except ValidationError as exc:
             elem = element_type(loose)
             if elem is not None and not isinstance(value, list | tuple | set | frozenset):
                 try:
-                    return to_bson(self.validate_type(elem, value, lax=lax))
+                    return to_bson(self._coerce(elem, value, lax))
                 except ValidationError:
                     pass
             raise QueryError(f"cannot cast {value!r} to {self.model.__name__}.{info.name}: {exc}") from exc
+
+    def _coerce(self, tp: t.Any, value: t.Any, lax: bool) -> t.Any:
+        """Cast a filter value. A value of the right type is taken as it is; otherwise text that
+        reads as the field's type is accepted (``"12"`` for an ``int``), on every backend."""
+        if lax:
+            return self.validate_type(tp, value, lax=True)
+        try:
+            return self.validate_type(tp, value)
+        except ValidationError:
+            return self.validate_type(tp, value, lax=True)
 
     def _cast_ref(self, info: FieldInfo, value: t.Any) -> t.Any:
         if isinstance(value, list | tuple | set | frozenset):
@@ -269,10 +341,13 @@ class ModelMeta:
         by ``insert()``; otherwise a query on a defaulted value would not find it.
         """
         out: dict[str, t.Any] = {}
+        absent = self.codec.absent_when_none(self.model)
         for name, value in self.codec.defaults(self.model).items():
             info = self.fields.get(name)
-            if info is None or info.transient or name == "id" or value is None:
+            if info is None or info.transient or name == "id":
                 continue
+            if value is None and info.stored in absent:
+                continue  # not stored while None; a StoreNone field is written as null
             out[info.stored] = to_bson(value)
         return out
 

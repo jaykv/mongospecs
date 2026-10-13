@@ -50,5 +50,11 @@ That is a complete API: `GET /api/tasks?title[prefix]=Wri&sort=-title&limit=20`,
 - **Framework-neutral.** The same resource mounts on five frameworks through thin plugs, and a
   contract suite (`mongospecs_web.testing`) checks that they all behave identically.
 
-Guides: [resources](https://github.com/jaykv/mongospecs/blob/main/docs/web/resources.md),
-[plugs](https://github.com/jaykv/mongospecs/blob/main/docs/web/plugs.md).
+Start with [Getting started](https://jaykv.github.io/mongospecs/tutorial/), which builds an API
+like this one step by step. Guides: [resources](https://jaykv.github.io/mongospecs/web/resources/),
+[authentication and authorization](https://jaykv.github.io/mongospecs/web/auth/),
+[testing](https://jaykv.github.io/mongospecs/web/testing/),
+[plugs](https://jaykv.github.io/mongospecs/web/plugs/).
+
+Responses are encoded with msgspec when it is installed (`mongospecs-web[msgspec]`), and with the
+standard library otherwise.

@@ -1,3 +1,0 @@
-# mongospecs.updates
-
-::: mongospecs.updates

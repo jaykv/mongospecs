@@ -4,7 +4,7 @@ mongospecs has the same four kinds of middleware as Mongoose, with typed signatu
 
 | Kind | Where | Runs for |
 |---|---|---|
-| Document hooks | `@Model.before("insert" \| "save" \| "delete")`, `@Model.after(...)` | document-level operations |
+| Document hooks | `@Model.before("insert" \| "save" \| "delete")`, `@Model.after(...)` | operations on documents you hold: `insert`, `save`, `delete`, `insert_many`, `bulk_save` |
 | Command and filter rewriting | `Plugin.on_insert`, `on_update`, `on_filter`, `on_delete` | every write and read, including filter-based ones |
 | Pipeline rewriting | `Plugin.on_pipeline` | `Model.aggregate` |
 | Bulk hooks | `Plugin.before_bulk`, `after_bulk` | `insert_many`, `bulk_write`, `bulk_save` |
@@ -28,8 +28,10 @@ async def slugify(ctx, note):
 Hooks receive an `OpCtx` (the session, registry and model) and the document. They run in
 registration order and the first exception stops the operation.
 
-Document hooks do not run for filter-based writes such as `Note.find(...).update(...)`: no
-documents are loaded. Plugins still rewrite those commands, which is how timestamps, revisions and
+Document hooks run wherever the documents are in your hands, which includes `insert_many` and
+`bulk_save` (the `before` hooks for every document ahead of the one round trip, the `after` hooks
+for the documents that were written). They do not run for filter-based writes such as
+`Note.find(...).update(...)`, `Model.update(id, ...)` or `bulk_write`: no documents are loaded. Plugins still rewrite those commands, which is how timestamps, revisions and
 scopes keep working there.
 
 ## Writing a plugin

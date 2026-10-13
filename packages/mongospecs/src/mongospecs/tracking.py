@@ -26,10 +26,14 @@ import bson
 __all__ = ["DocState", "diff", "forget", "state_of", "track"]
 
 
+def _nothing() -> None:
+    return None
+
+
 class DocState:
     """What mongospecs remembers about a tracked document."""
 
-    __slots__ = ("_doc", "_raw", "manager", "partial")
+    __slots__ = ("_doc", "_raw", "_ref", "manager", "partial")
 
     def __init__(
         self,
@@ -41,6 +45,7 @@ class DocState:
         self._doc: dict[str, t.Any] | None = None if isinstance(snapshot, bytes) else snapshot
         self.manager = manager
         self.partial = partial
+        self._ref: t.Any = _nothing  # the weak reference to the tracked object, set by track()
         """Stored keys that were loaded, when the document was read with a projection."""
 
     @property
@@ -67,7 +72,40 @@ _states: dict[int, DocState] = {}
 
 
 def state_of(obj: t.Any) -> DocState | None:
-    return _states.get(id(obj))
+    state = _states.get(id(obj))
+    if state is not None and state._ref() is not obj:
+        return None  # the entry belongs to an object that is being collected; its id was reused
+    return state
+
+
+class _Watch(weakref.ref):  # type: ignore[type-arg]
+    """A weak reference that remembers which entry of the side table it guards.
+
+    One plain weak reference per tracked document is several times cheaper than a
+    ``weakref.finalize`` (which also registers itself in a global table).
+    """
+
+    __slots__ = ("key",)
+    key: int
+
+
+def _gone(watch: _Watch) -> None:
+    # ids are reused: only drop the entry if it still belongs to the object that died
+    state = _states.get(watch.key)
+    if state is not None and state._ref is watch:
+        del _states[watch.key]
+
+
+def _install(obj: t.Any, state: DocState) -> None:
+    key = id(obj)
+    current = _states.get(key)
+    if current is not None and current._ref() is obj:
+        state._ref = current._ref
+    else:
+        watch = _Watch(obj, _gone)
+        watch.key = key
+        state._ref = watch
+    _states[key] = state
 
 
 def track(
@@ -76,23 +114,17 @@ def track(
     manager: t.Any,
     partial: frozenset[str] | None = None,
 ) -> DocState:
-    key = id(obj)
     state = DocState(snapshot, manager, partial)
-    if key not in _states:
-        weakref.finalize(obj, _states.pop, key, None)
-    _states[key] = state
+    _install(obj, state)
     return state
 
 
 def restore(obj: t.Any, state: DocState | None) -> None:
     """Put back a previous state (used when a transaction aborts)."""
-    key = id(obj)
     if state is None:
-        _states.pop(key, None)
+        _states.pop(id(obj), None)
     else:
-        if key not in _states:
-            weakref.finalize(obj, _states.pop, key, None)
-        _states[key] = state
+        _install(obj, state)
 
 
 def forget(obj: t.Any) -> None:

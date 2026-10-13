@@ -1,3 +1,0 @@
-# mongospecs.refs
-
-::: mongospecs.refs

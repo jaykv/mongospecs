@@ -38,6 +38,10 @@ __all__ = [
 class MongoSpecsError(Exception):
     """Base class for every error raised by mongospecs."""
 
+    failed: t.Sequence[t.Any] = ()
+    """For batch operations that partly succeeded: the documents that were *not* written.
+    Every other document in the batch was written and is in sync in memory."""
+
 
 class ConfigurationError(MongoSpecsError):
     """A model, plugin or registry is declared incorrectly."""
@@ -154,6 +158,9 @@ def _duplicate_fields(details: t.Any) -> dict[str, t.Any]:
     return {}
 
 
+_TYPE_MISMATCH = 14
+
+
 def translate(exc: BaseException) -> MongoSpecsError:
     """Map a pymongo/bson exception to exactly one mongospecs error."""
     msg = str(exc)
@@ -183,6 +190,10 @@ def translate(exc: BaseException) -> MongoSpecsError:
     if isinstance(exc, pe.OperationFailure):
         if exc.code in _TOO_LARGE_CODES:
             return DocumentTooLarge(msg, code=exc.code, details=exc.details)
+        if exc.code == _TYPE_MISMATCH:
+            # The update or query does not fit the stored value (incrementing a string, say):
+            # the caller's mistake, not a server failure.
+            return QueryError(msg)
         return OperationFailed(msg, code=exc.code, details=exc.details)
     if isinstance(exc, pe.InvalidOperation):
         return DriverError(msg)

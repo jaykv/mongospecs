@@ -40,8 +40,12 @@ _FALSE = frozenset({"false", "0", "no"})
 class Pagination:
     default: int = 20
     max: int = 100
-    total: bool = True
-    """Whether clients may ask for a total count with ``?total=true``."""
+    total: bool = False
+    """Whether clients may ask for a total count with ``?total=true``. Off by default: a
+    count is a second query over every match, which a client should not get for free."""
+    max_offset: int = 10_000
+    """Offset pagination only: how many documents a page may skip. Deep offsets make the
+    server walk and discard everything before them; use cursors beyond this."""
     kind: t.ClassVar[str] = "cursor"
 
 
@@ -100,6 +104,9 @@ def parse_list_query(
             raise BadRequest(f"{name!r} cannot be used as a filter")
         if op not in allowed:
             raise BadRequest(f"operator {op!r} is not allowed on {name!r}; allowed: {', '.join(allowed)}")
+        if len(values) > 1 and op not in ("in", "nin"):
+            # Only one of them could apply; picking it silently hides the client's mistake.
+            raise BadRequest(f"{key!r} is given more than once")
         filters.append(Filter(name, op, _value(view, name, op, values)))
 
     sort: list[tuple[str, int]] = []
@@ -111,6 +118,8 @@ def parse_list_query(
         name = item.lstrip("+-")
         if name not in view.sortable:
             raise BadRequest(f"{name!r} cannot be used for sorting")
+        if any(name == taken for taken, _ in sort):
+            raise BadRequest(f"{name!r} is given more than once in sort")
         sort.append((name, direction))
 
     size = pagination.default
@@ -122,6 +131,10 @@ def parse_list_query(
         if after is not None:
             raise BadRequest("this resource uses page numbers; use page= instead of after=")
         number = _int(grouped["page"][-1], "page") if "page" in grouped else 1
+        if (number - 1) * size > pagination.max_offset:
+            raise BadRequest(
+                f"page {number} is too deep: at most {pagination.max_offset} results can be skipped"
+            )
     elif "page" in grouped:
         raise BadRequest("this resource uses cursors; use after= instead of page=")
     total = _bool(grouped["total"][-1], "total") if "total" in grouped else False

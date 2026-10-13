@@ -9,12 +9,24 @@ from __future__ import annotations
 import typing as t
 from dataclasses import dataclass, field
 
-from mongospecs import DocumentNotFound, Page, Q, QueryError, StaleDocumentError, meta_of
+from mongospecs import DocumentNotFound, Page, Q, QueryError, Revision, StaleDocumentError, meta_of
 from mongospecs.expr import Condition, Expr, Field
 
 __all__ = ["OPERATORS", "Filter", "ListQuery", "MongoBackend", "ResourceBackend"]
 
 T = t.TypeVar("T")
+
+_PATH_NOT_VIABLE = 28
+"""Server error for a dotted path that runs through a null or a non-object."""
+
+
+def _dig(doc: t.Any, path: str) -> t.Any:
+    for part in path.split("."):
+        if not isinstance(doc, dict):
+            return None
+        doc = doc.get(part)
+    return doc
+
 
 OPERATORS: dict[str, str] = {
     "eq": "$eq",
@@ -151,19 +163,77 @@ class MongoBackend(t.Generic[T]):
         doc = self.meta.decode(stored, stored=False)
         return t.cast(T, await self.manager.insert(doc))
 
-    async def patch(self, id: t.Any, data: dict[str, t.Any], *, scope: t.Any, if_rev: int | None = None) -> T:
+    supports_merge = True
+    """``patch`` accepts ``merge=``: a :class:`~mongospecs_web.merge.PatchPlan` of writes inside
+    embedded objects, applied together with ``data`` in one atomic update."""
+
+    async def patch(
+        self,
+        id: t.Any,
+        data: dict[str, t.Any],
+        *,
+        scope: t.Any,
+        if_rev: int | None = None,
+        merge: t.Any = None,
+    ) -> T:
         query = self._by_id(id, scope)
         if query is None:
             raise DocumentNotFound(f"{self.model.__name__} {id!r} does not exist")
-        if not data:
+        nested = merge is not None and merge.nested
+        if not data and not nested:
             doc = await query.first()
             if doc is None:
                 raise DocumentNotFound(f"{self.model.__name__} {id!r} does not exist")
             return t.cast(T, doc)
-        from mongospecs import trusted
+        from mongospecs import OperationFailed, Set, Unset, trusted
+        from mongospecs.expr import and_filters
 
-        target = trusted(query._user_filter())
-        return t.cast(T, await self.manager.update(target, if_rev=if_rev, **data))
+        base = query._user_filter()
+        if not nested:
+            return t.cast(T, await self.manager.update(trusted(base), if_rev=if_rev, **data))
+        meta = self.manager.meta
+        ops: list[t.Any] = []
+        if merge.set:
+            ops.append(Set(merge.set))
+        if merge.unset:
+            ops.append(Unset(*merge.unset))
+        # A partial object can only be merged into an object that is already there.
+        present = {meta.stored_path(path): {"$type": "object"} for path in merge.parents}
+        try:
+            return t.cast(
+                T, await self.manager.update(trusted(and_filters(base, present)), *ops, if_rev=if_rev, **data)
+            )
+        except DocumentNotFound:
+            if not merge.parents:
+                raise
+            raw = await self.manager.find(trusted(base)).raw().first()
+            if raw is None:
+                raise
+            revision = next((f for f in meta.fields.values() if f.has(Revision)), None)
+            if if_rev is not None and revision is not None and (raw.get(revision.stored) or 0) != if_rev:
+                raise StaleDocumentError(
+                    f"{self.model.__name__}: revision {if_rev} is no longer current"
+                ) from None
+            from mongospecs_web.errors import Unprocessable
+
+            errors = [
+                {
+                    "field": client_path,
+                    "message": "does not exist yet; send all of its required fields: " + ", ".join(required),
+                }
+                for path, (client_path, required) in merge.parents.items()
+                if not isinstance(_dig(raw, meta.stored_path(path)), dict)
+            ]
+            raise Unprocessable("The request body failed validation.", errors=errors or None) from None
+        except OperationFailed as exc:
+            if exc.code != _PATH_NOT_VIABLE:
+                raise
+            from mongospecs_web.errors import Unprocessable
+
+            raise Unprocessable(
+                "Part of the request addresses an embedded object that is stored as null. "
+                "Send that object whole, with all of its required fields."
+            ) from None
 
     async def delete(self, id: t.Any, *, scope: t.Any, if_rev: int | None = None) -> None:
         manager = self.manager

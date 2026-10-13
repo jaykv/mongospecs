@@ -359,6 +359,10 @@ class View:
                 hidden: list[str] = []
                 nested_violations(value, plan, key, hidden)
                 errors.extend({"field": path, "message": "unknown field"} for path in hidden)
+            if action == "create":
+                from mongospecs_web.merge import nested_create_errors
+
+                nested_create_errors(self.meta.fields[key].type, value, key, self.explicit_writes, errors)
             if _has_oversized_int(value) and not _takes_any_number(self.meta.fields[key].type):
                 errors.append(
                     {"field": key, "message": f"integers must be between {INT64_MIN} and {INT64_MAX}"}
@@ -366,6 +370,66 @@ class View:
         if errors:
             raise Unprocessable("The request body failed validation.", errors=errors)
         return data
+
+    def plan_patch(self, data: t.Mapping[str, t.Any]) -> t.Any:
+        """Turn a checked PATCH body into a :class:`~mongospecs_web.merge.PatchPlan`.
+
+        An object given for an embedded model is merged into the stored one, key by key;
+        see :mod:`mongospecs_web.merge` for the rules and the reason.
+        """
+        from mongospecs_web.errors import Unprocessable
+        from mongospecs_web.merge import plan_patch
+
+        plan, errors = plan_patch(self.meta.fields, data, self.explicit_writes)
+        if errors:
+            raise Unprocessable("The request body failed validation.", errors=errors)
+        return plan
+
+    def _merge_schema(self, node: t.Any, defs: dict[str, t.Any]) -> t.Any:
+        """The PATCH form of a property schema: an embedded object becomes a partial object.
+
+        References reached directly or through ``anyOf`` (an optional object) point at
+        ``<Name>Patch``; those inside ``items`` or ``additionalProperties`` are left alone,
+        because lists and dicts are replaced whole.
+        """
+        if not isinstance(node, dict):
+            return node
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/$defs/"):
+            name = ref.rsplit("/", 1)[1]
+            return {**node, "$ref": f"#/$defs/{self._patch_def(name, defs)}"}
+        out = dict(node)
+        for key in _MERGE_KEYS:
+            if isinstance(node.get(key), list):
+                out[key] = [self._merge_schema(item, defs) for item in node[key]]
+        return out
+
+    def _patch_def(self, name: str, defs: dict[str, t.Any]) -> str:
+        from mongospecs_web.merge import _fields, _may
+
+        patch_name = f"{name}Patch"
+        if patch_name in defs or name not in defs:
+            return patch_name if patch_name in defs else name
+        classes = {
+            cls.__name__: cls for info in self.meta.fields.values() for cls in embedded_models(info.type)
+        }
+        cls = classes.get(name)
+        if cls is None:
+            return name
+        writable = {
+            key
+            for key, (_, info) in _fields(cls).items()
+            if not info.policy.private and _may(info, "update", self.explicit_writes)
+        }
+        full = defs[name]
+        defs[patch_name] = partial = {k: v for k, v in full.items() if k not in ("required", "title")}
+        partial["properties"] = {
+            key: self._merge_schema(value, defs)
+            for key, value in full.get("properties", {}).items()
+            if key in writable
+        }
+        partial["additionalProperties"] = False
+        return patch_name
 
     # -- schemas ----------------------------------------------------------------
 
@@ -425,10 +489,18 @@ class View:
                 schema["required"] = [n for n in required if n in allowed]
         if not schema.get("required"):
             schema.pop("required", None)
-        defs = _reachable(schema, base.get("$defs", {}))
+        all_defs: dict[str, t.Any] = dict(base.get("$defs", {}))
+        if kind == "patch":
+            schema["properties"] = {
+                name: self._merge_schema(node, all_defs) for name, node in schema["properties"].items()
+            }
+        defs = _reachable(schema, all_defs)
         if defs:
             schema["$defs"] = defs
         return schema
+
+
+_MERGE_KEYS = ("anyOf", "oneOf", "allOf")
 
 
 def _child(value: t.Any, include: t.Collection[str]) -> t.Any:

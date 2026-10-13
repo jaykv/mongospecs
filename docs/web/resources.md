@@ -149,10 +149,37 @@ on patch (a float or Decimal field takes it as that type). A guard listed in mor
 runs once per request. Private fields appear nowhere in `openapi.json`, and it only publishes
 the nested definitions that the Read, Create and Patch schemas refer to.
 
-`Policy(private=True)` also applies to the fields of embedded models, at any depth: they are never
-in a response, a request that supplies one gets a 422, and they are in no schema. A `PATCH` that
-sends an embedded object replaces it whole, so private values inside it are cleared; patch the
-other fields of the parent, or set such values in a server-side hook.
+`Policy` also applies to the fields of embedded models, at any depth. Private fields are never in
+a response and are in no schema; a request that supplies a field it may not write (private,
+`insert=False` on create, `update=False` or `Immutable` on patch) gets a 422 naming the dotted path.
+
+## PATCH and embedded objects
+
+`PATCH` merges into embedded objects instead of replacing them (JSON Merge Patch, RFC 7396):
+
+```
+PATCH /people/1   {"address": {"zip": "0150", "note": null, "geo": {"lat": 59.9}}}
+```
+
+- Each key is written on its own (`address.zip`, `address.geo.lat`), all in one atomic update, with
+  one revision bump and the usual `If-Match` check. Keys the request does not name are untouched.
+- `null` clears a key: it is removed, or stored as `null` where the field is `StoreNone`. A key that
+  cannot be `None` rejects `null`.
+- Lists and dicts are replaced whole, as before.
+- If the object does not exist yet, the request must carry all of its required fields; otherwise it
+  is a 422 that lists them.
+
+What a client cannot set, it cannot clear either:
+
+- a nested key it may not write is rejected (422);
+- an embedded object that holds such values cannot be set to `null`;
+- a list or dict of embedded objects that hold such values cannot be replaced through `PATCH`
+  (there is no way to merge into a list item). Give such lists their own operation with
+  `@resource.op`, where your code decides what happens to the server's values.
+
+The Patch schema in OpenAPI describes embedded objects as partial (`AddrPatch`: no required keys,
+only the writable ones). Values stored in untyped fields (`Any`, `dict[str, Any]`) are served as
+JSON whatever they are: an ObjectId as its string, dates as ISO 8601, binary as base64.
 
 `Api(max_concurrency=N)` answers the request beyond N in flight with 503 and `Retry-After`. See
 [Tuning for production](../guide/production.md).

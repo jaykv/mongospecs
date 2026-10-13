@@ -167,7 +167,17 @@ class FakeBackend(t.Generic[T]):
         self.docs[doc.id] = doc
         return t.cast(T, doc)
 
-    async def patch(self, id: t.Any, data: dict[str, t.Any], *, scope: t.Any, if_rev: int | None = None) -> T:
+    supports_merge = True
+
+    async def patch(
+        self,
+        id: t.Any,
+        data: dict[str, t.Any],
+        *,
+        scope: t.Any,
+        if_rev: int | None = None,
+        merge: t.Any = None,
+    ) -> T:
         doc = self._find(id, scope)
         if doc is None:
             raise DocumentNotFound("not found")
@@ -175,6 +185,26 @@ class FakeBackend(t.Generic[T]):
         if revision is not None and if_rev is not None and getattr(doc, revision) != if_rev:
             raise StaleDocumentError("stale")
         values = {k: self.meta.codec.validate_field(self.model, k, v) for k, v in data.items()}
+        if merge is not None and merge.nested:
+            # Apply the nested writes to the encoded document and read the touched fields back.
+            encoded = self.meta.encode(doc)
+            for path, (client_path, required) in merge.parents.items():
+                if not isinstance(_walk(encoded, self.meta.stored_path(path)), dict):
+                    from mongospecs_web.errors import Unprocessable
+
+                    message = "does not exist yet; send all of its required fields: " + ", ".join(required)
+                    raise Unprocessable(
+                        "The request body failed validation.",
+                        errors=[{"field": client_path, "message": message}],
+                    )
+            for path, value in merge.set.items():
+                _put(encoded, self.meta.stored_path(path), value)
+            for path in merge.unset:
+                _put(encoded, self.meta.stored_path(path), _REMOVE)
+            merged = self.meta.decode(encoded)
+            for path in (*merge.set, *merge.unset):
+                head = path.partition(".")[0]
+                values[head] = getattr(merged, head)
         if values:
             before = {k: getattr(doc, k) for k in values}
             for key, value in values.items():
@@ -197,6 +227,27 @@ class FakeBackend(t.Generic[T]):
         if revision is not None and if_rev is not None and getattr(doc, revision) != if_rev:
             raise StaleDocumentError("stale")
         del self.docs[t.cast(t.Any, doc).id]
+
+
+_REMOVE: t.Any = object()
+
+
+def _walk(doc: t.Any, path: str) -> t.Any:
+    for part in path.split("."):
+        if not isinstance(doc, dict):
+            return None
+        doc = doc.get(part)
+    return doc
+
+
+def _put(doc: dict[str, t.Any], path: str, value: t.Any) -> None:
+    *parents, last = path.split(".")
+    for part in parents:
+        doc = doc.setdefault(part, {})
+    if value is _REMOVE:
+        doc.pop(last, None)
+    else:
+        doc[last] = value
 
 
 # -- the contract API ----------------------------------------------------------------

@@ -561,8 +561,17 @@ class Resource(t.Generic[T]):
             if body is None:
                 raise Unprocessable("A JSON request body is required.")
             data = self.view.check_input(body, self.view.updatable, "update")
+            plan = self.view.plan_patch(data)
             if_rev = _if_match(ctx.request.headers.get("if-match"), self.view.revision is not None)
-            doc = await self.backend.patch(ctx.id, dict(data), scope=await ctx.scope(), if_rev=if_rev)
+            if plan.nested:
+                # Objects given for embedded models are merged, not replaced.
+                if not getattr(self.backend, "supports_merge", False):
+                    raise Unprocessable("This resource cannot patch part of an embedded object.")
+                doc = await t.cast(t.Any, self.backend).patch(
+                    ctx.id, plan.fields, scope=await ctx.scope(), if_rev=if_rev, merge=plan
+                )
+            else:
+                doc = await self.backend.patch(ctx.id, plan.fields, scope=await ctx.scope(), if_rev=if_rev)
             ctx.state["result"] = doc
             headers: dict[str, str] = {}
             etag = self.view.etag(doc)

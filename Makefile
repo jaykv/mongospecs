@@ -18,12 +18,12 @@ test-fast:
 	uv run pytest -m "not sharded"
 
 format:
-	uv run ruff format packages bench
-	uv run ruff check packages bench --fix
+	uv run ruff format packages bench examples
+	uv run ruff check packages bench examples --fix
 
 lint:
-	uv run ruff format --check packages bench
-	uv run ruff check packages bench
+	uv run ruff format --check packages bench examples
+	uv run ruff check packages bench examples
 
 types:
 	uv run mypy packages/mongospecs/src/mongospecs packages/mongospecs-web/src/mongospecs_web bench/src/mongospecs_bench

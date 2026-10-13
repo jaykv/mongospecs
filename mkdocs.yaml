@@ -1,4 +1,7 @@
 site_name: "mongospecs"
+site_url: "https://jaykv.github.io/mongospecs/"
+repo_url: "https://github.com/jaykv/mongospecs"
+edit_uri: "edit/main/docs/"
 
 theme:
   name: "material"
@@ -51,6 +54,8 @@ markdown_extensions:
     emoji_generator: !!python/name:material.extensions.emoji.to_svg
 - pymdownx.magiclink
 - pymdownx.snippets:
+    base_path: ["."]
+    check_paths: true
 - pymdownx.superfences
 - pymdownx.tabbed:
     alternate_style: true
@@ -62,61 +67,27 @@ markdown_extensions:
 
 plugins:
   search:
-  mkdocstrings:
-    handlers:
-      python:
-        paths: [packages/mongospecs/src, packages/mongospecs-web/src]
-        options:
-          docstring_section_style: list
-          filters: ["!^_"]
-          heading_level: 2
-          merge_init_into_class: true
-          separate_signature: true
-          show_root_heading: false
-          show_signature_annotations: true
-          show_source: false
-          signature_crossrefs: true
 
 nav:
 - Home: index.md
+- Getting started: tutorial.md
 - Guide:
   - Models: guide/models.md
+  - Choosing a backend: guide/backends.md
   - Queries: guide/queries.md
   - Writes and transactions: guide/writes.md
   - Relations: guide/relations.md
   - Hooks and plugins: guide/plugins.md
+  - Errors: guide/errors.md
   - Running in production: guide/operations.md
   - Tuning for production: guide/production.md
 - Web:
   - Resources: web/resources.md
+  - Authentication and authorization: web/auth.md
+  - Testing your API: web/testing.md
   - Plugs: web/plugs.md
 - Benchmarks: benchmarks.md
 - Coming from Mongoose: parity.md
 - Migrating from 0.1.x:
   - Guide: migration.md
   - v1 test inventory: v1-test-inventory.md
-- Reference:
-  - mongospecs:
-    - registry: reference/registry.md
-    - model: reference/model.md
-    - manager: reference/manager.md
-    - query: reference/query.md
-    - expr: reference/expr.md
-    - updates: reference/updates.md
-    - bulk: reference/bulk.md
-    - markers: reference/markers.md
-    - refs: reference/refs.md
-    - relations: reference/relations.md
-    - indexes: reference/indexes.md
-    - hooks: reference/hooks.md
-    - streams: reference/streams.md
-    - errors: reference/errors.md
-  - mongospecs-web:
-    - resource: reference/web_resource.md
-    - api: reference/web_api.md
-    - backend: reference/web_backend.md
-    - filters: reference/web_filters.md
-    - policy: reference/web_policy.md
-    - errors: reference/web_errors.md
-    - openapi: reference/web_openapi.md
-    - testing: reference/web_testing.md

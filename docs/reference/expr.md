@@ -1,3 +1,0 @@
-# mongospecs.expr
-
-::: mongospecs.expr

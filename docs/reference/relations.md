@@ -1,3 +1,0 @@
-# mongospecs.relations
-
-::: mongospecs.relations

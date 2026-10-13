@@ -63,17 +63,8 @@ ready-made listeners. With the Sentry SDK, database work shows up as `Account.in
 
 ## Errors
 
-mongospecs raises its own errors and keeps the driver error as `__cause__`.
-
-| Error | When |
-|---|---|
-| `ValidationError` | input does not fit the model |
-| `QueryError` | unknown field, uncastable value, untrusted operator |
-| `DocumentNotFound` | an acknowledged read or write matched nothing |
-| `StaleDocumentError` | a revision check failed |
-| `DuplicateKeyError` | unique index violated; `.fields` names the values |
-| `OperationTimeout`, `ConnectionFailed`, `PoolTimeout` | the database is slow or unreachable |
-| `DocumentTooLarge` | a document or pipeline result exceeded 16MB |
+mongospecs raises its own errors and keeps the driver error as `__cause__`. See [Errors](errors.md)
+for each one, what to do about it and what an API client sees.
 
 ## One registry per model, or explicit managers
 

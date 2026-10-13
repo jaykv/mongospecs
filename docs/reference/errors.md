@@ -1,3 +1,0 @@
-# mongospecs.errors
-
-::: mongospecs.errors

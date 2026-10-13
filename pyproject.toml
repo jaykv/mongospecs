@@ -32,12 +32,11 @@ dev = [
 ]
 docs = [
     "mkdocs-material>=9.5",
-    "mkdocstrings[python]>=0.26",
 ]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib -ra"
-testpaths = ["packages/mongospecs/tests", "packages/mongospecs-web/tests", "bench/tests"]
+testpaths = ["packages/mongospecs/tests", "packages/mongospecs-web/tests", "bench/tests", "examples"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
@@ -49,7 +48,7 @@ markers = [
 [tool.ruff]
 line-length = 110
 target-version = "py311"
-src = ["packages/mongospecs/src", "packages/mongospecs-web/src", "bench/src"]
+src = ["packages/mongospecs/src", "packages/mongospecs-web/src", "bench/src", "examples/todo_api"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "ASYNC", "RUF"]
@@ -57,6 +56,7 @@ ignore = ["E501", "RUF012"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["B", "RUF"]
+"examples/**" = ["B", "RUF"]
 # Benchmarks define closures inside loops and call them before the next iteration.
 "bench/**" = ["B023"]
 

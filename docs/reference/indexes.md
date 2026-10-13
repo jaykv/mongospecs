@@ -1,3 +1,0 @@
-# mongospecs.indexes
-
-::: mongospecs.indexes

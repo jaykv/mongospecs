@@ -1,3 +1,0 @@
-# mongospecs.query
-
-::: mongospecs.query

@@ -1,3 +1,0 @@
-# mongospecs.manager
-
-::: mongospecs.manager

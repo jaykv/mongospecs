@@ -1,3 +1,0 @@
-# mongospecs.markers
-
-::: mongospecs.markers

@@ -873,6 +873,9 @@ Recorded per §7.1 rule 4. Each one names what changed and why; none invalidates
 | A19 | §4.6 | Cursor pagination needs an index ending in `_id`; with an index on the sort key alone the server sorts in memory | Measured (B5): 20ms vs under 1ms for the first page of 50k documents |
 | A20 | §4.8 | `Resource(server_fields=...)` sets values on create outside the field policy | Needed by the reference application (the author of a review) |
 | A21 | §6 | The evidence track gained a production-shaped reference application ("storefront"), end-to-end tests that boot it as a real server process, and an HTTP load benchmark with a hand-written pymongo baseline (nodes E4-E6) | Requested by Jay 2026-10-13: real end-to-end, production-ready scenarios |
+| A22 | §6 | Workload B7 (HTTP per plug) is the `LOAD` workload: a real server process under load, with server CPU per request as the primary metric | Measuring plugs through an in-process test client, and later through httpx over TCP, measured the client |
+| A23 | §4.5 | An upsert gives the inserted document the model's non-null defaults through `$setOnInsert` | Otherwise a document created by upsert differs in shape from one created by `insert()` and queries on defaulted values miss it (Mongoose: `setDefaultsOnInsert`) |
+| A24 | §4.2 | Subclass discovery ignores stale class copies | `attrs.define` replaces a class with a slotted copy and the original lingers until collected; found by the free-threaded CI job |
 
 New node:
 
@@ -887,3 +890,12 @@ Bugs the end-to-end tests found that the unit and contract suites had not: aggre
 (`aggregate`, `union`, `graph`, backref counts) broke whenever a default time limit was configured;
 string ids assigned to reference fields were stored as strings on msgspec and attrs; unexpected
 server errors were not logged anywhere.
+
+### Decisions taken from the evidence (see `docs/benchmarks.md`, results `6dc837f`)
+
+| Node | Decision | Basis |
+|---|---|---|
+| R6 | `include(strategy="auto")` uses batched queries. `$lookup` stays available explicitly | `$lookup` never won clearly on a replica set (two runs disagreed at fan-out 100), was 2.5-3x slower when many parents share few targets, and 5-9x slower through mongos for small fan-outs |
+| D1 | No Rust in 0.2. The only candidate worth a native component is a BSON-to-model decoder for bulk reads, as a separate optional package behind `Codec.decode(bytes)` | BSON-to-dict is essentially all of the driver's time on bulk reads (10.1 us per nested document against 3.3 us for msgspec's dict-to-model step) but an estimated 10-20% of server CPU on request-sized reads. Needs Jay's call on whether bulk reads matter enough |
+| Open decision 4 | Reads validate; the `trusted` option is removed | Measured slower than validating on pydantic, no effect elsewhere |
+| Open decision 6 | Tracked stays the default read mode | 0-15% over lean and about 1.2 KB per document after the raw-BSON snapshot change |

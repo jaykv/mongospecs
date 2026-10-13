@@ -1,4 +1,7 @@
-"""Benchmark workloads B1-B8 (plan section 6). Each returns a :class:`Result`.
+"""Benchmark workloads B1-B6 and B8 (plan section 6). Each returns a :class:`Result`.
+
+B7 (HTTP per plug) is the ``LOAD`` workload in :mod:`mongospecs_bench.load`: measuring plugs through
+an in-process test client mostly measured the client.
 
 Everything that touches the network runs against real MongoDB. Numbers from a
 ``--quick`` run only prove the harness works; they are not for conclusions.
@@ -11,13 +14,11 @@ import tracemalloc
 import typing as t
 
 import bson
-import httpx
 
 from mongospecs import Inc, Plugin, Q, meta_of, relations, tracking
 from mongospecs.query import _encode_cursor
 from mongospecs_bench.harness import Result, Settings, environment, measure, measure_sync
 from mongospecs_bench.models import MODELS, SHAPES, model_for, raw_document
-from mongospecs_web import Api, Resource
 
 Workload = t.Callable[[Settings], t.Awaitable[Result]]
 
@@ -476,99 +477,6 @@ async def b6(settings: Settings) -> Result:
     return result
 
 
-# -- B7 -------------------------------------------------------------------------------
-
-
-def _apps(api: Api) -> dict[str, t.Any]:
-    from fastapi import FastAPI
-    from litestar import Litestar
-    from quart import Quart
-    from starlette.applications import Starlette
-
-    from mongospecs_web.plugs import fastapi as fastapi_plug
-    from mongospecs_web.plugs import quart as quart_plug
-    from mongospecs_web.plugs import starlette as starlette_plug
-    from mongospecs_web.plugs.litestar import MongospecsPlugin
-
-    fast = FastAPI()
-    fastapi_plug.mount(fast, api)
-    quart = Quart(__name__)
-    quart_plug.init_app(quart, api)
-    return {
-        "asgi": api.asgi(),
-        "starlette": Starlette(routes=starlette_plug.routes(api)),
-        "fastapi": fast,
-        "litestar": Litestar(plugins=[MongospecsPlugin(api)], openapi_config=None),
-        "quart": quart,
-    }
-
-
-async def b7(settings: Settings) -> Result:
-    result = Result(
-        "B7",
-        "HTTP request to response",
-        "What does each plug add over calling the API core directly, per model backend?",
-    )
-    calls = settings.scale(200, 10)
-    async with environment(settings) as registry:
-        for backend in settings.backends:
-            ns = MODELS[backend]
-            manager = registry.manager(ns.Small)
-            await manager.collection.delete_many({})
-            await manager.collection.insert_many([raw_document("small", i) for i in range(200)])
-            first = await manager.collection.find_one({})
-            assert first is not None
-            from mongospecs_web.backend import MongoBackend
-
-            api = Api(
-                Resource(ns.Small, name="small", backend=MongoBackend(ns.Small, manager)), prefix="/api"
-            )
-            one, many = f"/api/small/{first['_id']}", "/api/small?limit=20"
-
-            async def direct(path: str) -> None:
-                for _ in range(calls):
-                    await api.handle(
-                        "GET", path.split("?")[0], query=[("limit", "20")] if "?" in path else []
-                    )
-
-            base = {
-                "get one": await measure(lambda: direct(one), repeat=settings.repeat),
-                "list 20": await measure(lambda: direct(many), repeat=settings.repeat),
-            }
-            for case, timing in base.items():
-                result.add(
-                    backend=backend,
-                    plug="(core, no HTTP)",
-                    case=case,
-                    us_per_request=round(timing.median_ms * 1000 / calls, 1),
-                    vs_core=1.0,
-                )
-            for plug, app in _apps(api).items():
-                async with httpx.AsyncClient(
-                    transport=httpx.ASGITransport(app=app), base_url="http://bench"
-                ) as client:
-
-                    async def hit(path: str) -> None:
-                        for _ in range(calls):
-                            response = await client.get(path)
-                            assert response.status_code == 200, response.text
-
-                    for case, path in (("get one", one), ("list 20", many)):
-                        timing = await measure(lambda: hit(path), repeat=settings.repeat)
-                        per = timing.median_ms * 1000 / calls
-                        result.add(
-                            backend=backend,
-                            plug=plug,
-                            case=case,
-                            us_per_request=round(per, 1),
-                            vs_core=_ratio(per, base[case].median_ms * 1000 / calls),
-                        )
-    result.notes.append(
-        "Requests go through httpx's in-process ASGI transport, so client overhead is included equally for every plug."
-    )
-    return result
-
-
 # -- B8 -------------------------------------------------------------------------------
 
 
@@ -651,6 +559,5 @@ WORKLOADS: dict[str, Workload] = {
     "B4": b4,
     "B5": b5,
     "B6": b6,
-    "B7": b7,
     "B8": b8,
 }

@@ -69,11 +69,29 @@ def resolve_config(cls: type) -> SpecConfig:
     return own
 
 
-def _all_subclasses(cls: type) -> t.Iterator[type]:
-    sub: type
-    for sub in cls.__subclasses__():
-        yield sub
-        yield from _all_subclasses(sub)
+def _all_subclasses(cls: type) -> list[type]:
+    """Every live subclass of ``cls``, one per definition.
+
+    ``attrs.define`` replaces a class with a slotted copy; the original lingers in
+    ``__subclasses__()`` until it is garbage collected (noticeably longer on
+    free-threaded builds). Both have the same parent, module and qualified name, so
+    the later one, which is the real class, wins.
+    """
+    out: list[type] = []
+
+    def walk(klass: type) -> None:
+        # Deduplicate among the direct subclasses of one parent only: unrelated classes may
+        # legitimately share a qualified name (built by the same factory function, say).
+        level: dict[tuple[str, str], type] = {}
+        sub: type
+        for sub in klass.__subclasses__():
+            level[(sub.__module__, sub.__qualname__)] = sub
+        for sub in level.values():
+            out.append(sub)
+            walk(sub)
+
+    walk(cls)
+    return out
 
 
 class ModelMeta:
@@ -280,7 +298,9 @@ class ModelMeta:
         """Restrict a query on a subclass to documents of that subclass (and its own subclasses)."""
         if not self.disc_key or self.model is self.root:
             return {}
-        values = [self.disc_value, *(meta_of(c).disc_value for c in _all_subclasses(self.model))]
+        values = list(
+            dict.fromkeys([self.disc_value, *(meta_of(c).disc_value for c in _all_subclasses(self.model))])
+        )
         return {self.disc_key: values[0] if len(values) == 1 else {"$in": values}}
 
     # -- relations -------------------------------------------------------------

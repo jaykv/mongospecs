@@ -22,6 +22,7 @@ jobs:
       - run: make lint
       - run: make types
       - run: make build
+      - run: make docs
 
   test:
     runs-on: ubuntu-latest

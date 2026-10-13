@@ -7,48 +7,18 @@ JSON Schema for each view is produced by transforming the model's own schema.
 
 from __future__ import annotations
 
-import base64
-import datetime as dt
-import decimal
-import enum
 import typing as t
-import uuid
 import weakref
-
-from bson import ObjectId
-from bson.decimal128 import Decimal128
 
 from mongospecs import CreatedAt, Deferred, DeletedAt, Immutable, Ref, Revision, UpdatedAt, meta_of
 from mongospecs.codec import FieldInfo
+from mongospecs.jsonable import jsonable
 from mongospecs.markers import is_computed
 from mongospecs.meta import ModelMeta
 
 __all__ = ["View", "jsonable", "view_of"]
 
 _MANAGED = (CreatedAt, UpdatedAt, DeletedAt, Revision)
-
-
-def jsonable(value: t.Any) -> t.Any:
-    """Convert a BSON-ready value to plain JSON types."""
-    if value is None or isinstance(value, str | bool | int | float):
-        return value
-    if isinstance(value, ObjectId | uuid.UUID | decimal.Decimal | Decimal128):
-        return str(value)
-    if isinstance(value, dt.datetime):
-        return value.isoformat().replace("+00:00", "Z")
-    if isinstance(value, dt.date | dt.time):
-        return value.isoformat()
-    if isinstance(value, enum.Enum):
-        return jsonable(value.value)
-    if isinstance(value, dict):
-        return {str(k): jsonable(v) for k, v in value.items()}
-    if isinstance(value, list | tuple | set | frozenset):
-        return [jsonable(v) for v in value]
-    if isinstance(value, bytes | bytearray):
-        return base64.b64encode(bytes(value)).decode("ascii")
-    if isinstance(value, Ref):
-        return jsonable(value.id)
-    return str(value)
 
 
 class View:
@@ -91,6 +61,11 @@ class View:
             for name, attr in vars(klass).items()
             if is_computed(attr)
         )
+        # Serialisation plan: plain readable fields, and the relations that may be embedded.
+        self._plain: tuple[str, ...] = tuple(f.name for f in self.readable if not f.transient)
+        self._relations: tuple[FieldInfo, ...] = tuple(
+            f for f in self.readable if f.transient or f.ref is not None
+        )
         revision = next((f for f in fields.values() if f.has(Revision)), None)
         self.revision: str | None = revision.name if revision else None
 
@@ -100,24 +75,22 @@ class View:
         """The Read view of a document as JSON types. Private fields never appear."""
         if type(doc) is not self.model:
             return view_of(type(doc)).serialize(doc, include)
-        meta = self.meta
-        encoded = meta.encode(doc)
-        out: dict[str, t.Any] = {}
-        for f in self.readable:
-            nested = {p.partition(".")[2] for p in include if p.partition(".")[0] == f.name and "." in p}
-            if f.transient:
-                if f.name in include:
-                    value = getattr(doc, f.name)
+        data = self.meta.codec.to_json(doc)
+        out = {name: data.get(name) for name in self._plain}
+        if include:
+            for f in self._relations:
+                if f.name not in include:
+                    continue
+                nested = {p.partition(".")[2] for p in include if p.partition(".")[0] == f.name and "." in p}
+                value = getattr(doc, f.name)
+                if f.transient:
                     out[f.name] = (
                         [_child(v, nested) for v in value] if isinstance(value, list) else jsonable(value)
                     )
-                continue
-            if f.ref is not None and f.name in include:
-                out[f.name] = _embed(getattr(doc, f.name), encoded.get(f.stored), nested)
-                continue
-            out[f.name] = jsonable(encoded.get(f.stored))
-        if meta.disc_key:
-            out[meta.disc_key] = encoded.get(meta.disc_key)
+                else:
+                    out[f.name] = _embed(value, out.get(f.name), nested)
+        if self.meta.disc_key:
+            out[self.meta.disc_key] = self.meta.disc_value
         for name in self.computed:
             out[name] = jsonable(getattr(doc, name))
         return out

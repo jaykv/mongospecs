@@ -15,6 +15,7 @@ import typing as t
 from dataclasses import dataclass, field
 
 from mongospecs.expr import Expr
+from mongospecs.jsonable import jsonable
 from mongospecs_web.backend import MongoBackend, ResourceBackend
 from mongospecs_web.errors import (
     PROBLEM_JSON,
@@ -26,7 +27,7 @@ from mongospecs_web.errors import (
     problem,
 )
 from mongospecs_web.filters import Cursor, Pagination, parse_includes, parse_list_query
-from mongospecs_web.policy import View, jsonable, view_of
+from mongospecs_web.policy import View, view_of
 
 __all__ = ["Create", "Ctx", "Delete", "Get", "List", "Operation", "Patch", "Request", "Resource", "Response"]
 
@@ -43,6 +44,22 @@ Patch = "patch"
 Delete = "delete"
 
 JSON = "application/json"
+
+
+def _stdlib_dumps(data: t.Any) -> bytes:
+    return json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode()
+
+
+def _pick_dumps() -> t.Callable[[t.Any], bytes]:
+    """Use msgspec's JSON encoder when it is installed (it usually is); the standard library otherwise."""
+    try:
+        import msgspec
+    except ImportError:
+        return _stdlib_dumps
+    return msgspec.json.Encoder().encode
+
+
+dumps: t.Callable[[t.Any], bytes] = _pick_dumps()
 
 
 @dataclass(slots=True)
@@ -83,8 +100,7 @@ class Response:
 
     @classmethod
     def json(cls, data: t.Any, status: int = 200, headers: dict[str, str] | None = None) -> Response:
-        body = json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode()
-        return cls(status, body, dict(headers or {}), JSON)
+        return cls(status, dumps(data), dict(headers or {}), JSON)
 
     @classmethod
     def error(cls, exc: BaseException) -> Response:
@@ -461,7 +477,7 @@ class Resource(t.Generic[T]):
     def _get_op(self) -> Operation:
         async def handler(ctx: Ctx[T]) -> Response:
             include = parse_includes(ctx.request.query, self.includes)
-            doc = await self.backend.get(ctx.id, scope=await ctx.scope(), include=include)
+            doc = await self.backend.get(ctx.id, scope=await ctx.scope(), include=include, read_only=True)
             if doc is None:
                 raise NotFound("The resource does not exist.")
             ctx.state["result"] = doc

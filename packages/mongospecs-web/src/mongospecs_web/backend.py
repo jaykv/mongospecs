@@ -61,7 +61,11 @@ class ResourceBackend(t.Protocol[T]):
 
     model: type[T]
 
-    async def get(self, id: t.Any, *, scope: t.Any, include: t.Sequence[str] = ()) -> T | None: ...
+    async def get(
+        self, id: t.Any, *, scope: t.Any, include: t.Sequence[str] = (), read_only: bool = False
+    ) -> T | None:
+        """``read_only`` says the caller will only serialise the document, never save it."""
+        ...
 
     async def list(self, query: ListQuery, *, scope: t.Any) -> Page[T]: ...
 
@@ -94,16 +98,20 @@ class MongoBackend(t.Generic[T]):
             return None
         return query.filter(scope) if scope is not None else query
 
-    async def get(self, id: t.Any, *, scope: t.Any, include: t.Sequence[str] = ()) -> T | None:
+    async def get(
+        self, id: t.Any, *, scope: t.Any, include: t.Sequence[str] = (), read_only: bool = False
+    ) -> T | None:
         query = self._by_id(id, scope)
         if query is None:
             return None
+        if read_only:
+            query = query.lean()  # nothing will be saved: skip change tracking
         for path in include:
             query = query.include(path)
         return t.cast("T | None", await query.first())
 
     async def list(self, query: ListQuery, *, scope: t.Any) -> Page[T]:
-        q = self.manager.find(*(f.to_expr() for f in query.filters))
+        q = self.manager.find(*(f.to_expr() for f in query.filters)).lean()  # listings are read-only
         if scope is not None:
             q = q.filter(scope)
         if query.sort:

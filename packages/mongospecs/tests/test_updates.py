@@ -160,3 +160,28 @@ async def test_if_rev_on_atomic_update(m, registry):
         await m.Article.update(art.id, if_rev=0, title="c")
     with pytest.raises(DocumentNotFound):
         await m.Article.update(ObjectId(), if_rev=0, title="c")
+
+
+async def test_upsert_gives_the_new_document_the_model_defaults(m, registry):
+    """A document created by an upsert must look like one created by insert()."""
+    created = await m.Article.upsert(Q.title == "via upsert", Inc(views=5))
+    inserted = await m.Article(title="via insert", views=5).insert()
+    raw_upsert = await m.Article.collection().find_one({"_id": created.id}, {"_id": 0, "title": 0, "rev": 0})
+    raw_insert = await m.Article.collection().find_one({"_id": inserted.id}, {"_id": 0, "title": 0, "rev": 0})
+    for doc in (raw_upsert, raw_insert):
+        doc.pop("created_at"), doc.pop("updated_at")
+
+    def present(doc):
+        return {k: v for k, v in doc.items() if v is not None}
+
+    assert present(raw_insert) == present(raw_upsert)
+    assert raw_upsert["tags"] == [] and raw_upsert["editors"] == [] and raw_upsert["reviewers"] == {}
+    # so a query on a defaulted value finds it
+    assert await m.Article.count(Q.tags == []) == 2
+    # the filter and the update keep precedence over defaults, and an existing document is not reset
+    again = await m.Article.upsert(Q.title == "via upsert", Push(tags="x"))
+    assert again.tags == ["x"] and again.views == 5
+    with_default = await m.User.upsert((Q.name == "u") & (Q.age == 7), email="u@x.io")
+    assert with_default.age == 7
+    assert await m.Cat.upsert(Q.name == "tom", Inc(lives=-1)) is not None
+    assert (await m.Cat.collection().find_one({"name": "tom"}))["lives"] == -1  # $inc owns the field

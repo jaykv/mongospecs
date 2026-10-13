@@ -244,6 +244,20 @@ class ModelMeta:
             cls = self.subclass_for(doc.get(self.disc_key))
         return self.codec.decode(cls, doc, lax=stored)
 
+    def insert_defaults(self) -> dict[str, t.Any]:
+        """Stored key -> BSON-ready default, for fields with a non-null default.
+
+        Used so a document created by an upsert has the same shape as one created
+        by ``insert()``; otherwise a query on a defaulted value would not find it.
+        """
+        out: dict[str, t.Any] = {}
+        for name, value in self.codec.defaults(self.model).items():
+            info = self.fields.get(name)
+            if info is None or info.transient or name == "id" or value is None:
+                continue
+            out[info.stored] = to_bson(value)
+        return out
+
     def encode(self, obj: t.Any) -> dict[str, t.Any]:
         doc = self.codec.encode(obj)
         if self.disc_key:

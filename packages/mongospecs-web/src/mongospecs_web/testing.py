@@ -128,7 +128,9 @@ class FakeBackend(t.Generic[T]):
                 if other_id != skip and getattr(other, name) == value:
                     raise DuplicateKeyError(f"duplicate {name}", code=11000, fields={name: value})
 
-    async def get(self, id: t.Any, *, scope: t.Any, include: t.Sequence[str] = ()) -> T | None:
+    async def get(
+        self, id: t.Any, *, scope: t.Any, include: t.Sequence[str] = (), read_only: bool = False
+    ) -> T | None:
         return self._find(id, scope)
 
     async def list(self, query: ListQuery, *, scope: t.Any) -> Page[T]:

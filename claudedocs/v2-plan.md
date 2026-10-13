@@ -865,9 +865,25 @@ Recorded per §7.1 rule 4. Each one names what changed and why; none invalidates
 | A11 | §4.7 | `Registry(on_command=...)` listeners: `logging_listener`, `otel_listener`, and `sentry_listener` (new, requested 2026-10-13). End-to-end trace verification against a Sentry-compatible server (rustrak) is node `E3` | Jay asked for Sentry SDK integration with rustrak for end-to-end tracing |
 | A12 | §5 | Versions: `mongospecs` 0.2.0, `mongospecs-web` 0.1.0 | Decided by Jay |
 | A13 | §7.2 | Spikes S3, S4, S6 and S8 were answered by the contract tests rather than by throwaway code: markers under deferred annotations (suite passes on 3.11, 3.13, 3.15), per-field validation on all three backends, snapshot tracking, discriminators and forward references | The tests are the durable form of the spike |
+| A14 | §4.4 | The `trusted` read option is removed | Measured (B1): the pydantic fast path was slower than validating (17µs vs 5µs per wide document) and the flag did nothing on msgspec and attrs |
+| A15 | §4.5 | A tracked document keeps the raw BSON bytes it was read from. The comparable snapshot (decode into the model, encode again) is built only when the document is saved | Measured (B2, B8): building the snapshot at load time made tracked reads about twice as slow as lean reads |
+| A16 | §4.5 | A field the stored document lacks is not written back just because the model has a default for it; loading a document never produces changes | Follows from A15. What Mongoose does with defaults applied at load time was not verified |
+| A17 | §4.4 | Documents read from the database are decoded leniently on strict backends (msgspec, attrs): an integer stored as a double is accepted. Input (creates, inserts from dicts, updates) stays strict | Data written by other clients is commonly numerically "loose"; pydantic is already lax |
+| A18 | §4.2 | `Policy(private=True)` also means not writable, unless `insert`/`update` are set explicitly | Secure default found while building the web layer |
+| A19 | §4.6 | Cursor pagination needs an index ending in `_id`; with an index on the sort key alone the server sorts in memory | Measured (B5): 20ms vs under 1ms for the first page of 50k documents |
+| A20 | §4.8 | `Resource(server_fields=...)` sets values on create outside the field policy | Needed by the reference application (the author of a review) |
+| A21 | §6 | The evidence track gained a production-shaped reference application ("storefront"), end-to-end tests that boot it as a real server process, and an HTTP load benchmark with a hand-written pymongo baseline (nodes E4-E6) | Requested by Jay 2026-10-13: real end-to-end, production-ready scenarios |
 
 New node:
 
 | ID | Node | Needs | Check |
 |---|---|---|---|
 | E3 | End-to-end tracing: Sentry SDK in an app using `mongospecs-web`, sending to rustrak in Docker; one HTTP request yields one trace containing the request span and `Model.op` database spans | P1, K17 | A script asserts the trace arrived in rustrak with the expected spans |
+| E4 | Storefront reference application: auth, guards, row scope, transactional orders, soft delete, ETags, reverse relations, exactly-once change-stream projector, health check, graceful shutdown; runs on every plug and model backend | P1-P5, K6, R5 | The e2e suite below |
+| E5 | End-to-end tests over real HTTP against the storefront under uvicorn: customer journey on every plug, ordering on every backend, concurrent buyers never oversell, multi-item orders are atomic, projector resumes across restarts without double counting, in-flight requests finish on shutdown, orders stay consistent across a primary step-down | E4 | `uv run pytest bench/tests/test_e2e_storefront.py` passes; the stock invariant holds after each scenario |
+| E6 | HTTP load benchmark: mixed browse/detail/order traffic against the running storefront on every plug and backend, next to a hand-written pymongo + Starlette implementation of the same endpoints | E4, E1 | Results committed; the stock invariant holds after every run |
+
+Bugs the end-to-end tests found that the unit and contract suites had not: aggregation paths
+(`aggregate`, `union`, `graph`, backref counts) broke whenever a default time limit was configured;
+string ids assigned to reference fields were stored as strings on msgspec and attrs; unexpected
+server errors were not logged anywhere.

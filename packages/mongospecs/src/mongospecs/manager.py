@@ -402,6 +402,12 @@ class Manager(t.Generic[T]):
             ctx.extra["upsert"] = True
             if self.meta.disc_key:
                 update.setdefault("$setOnInsert", {})[self.meta.disc_key] = self.meta.disc_value
+            # Give the inserted document the model's defaults (Mongoose: setDefaultsOnInsert),
+            # except where the update or the filter already decides the value.
+            taken = {key.partition(".")[0] for body in update.values() for key in body} | _filter_keys(flt)
+            for stored, value in self.meta.insert_defaults().items():
+                if stored not in taken:
+                    update.setdefault("$setOnInsert", {})[stored] = value
         for plugin in self.plugins:
             plugin.on_update(ctx, flt, update)
         return update
@@ -779,3 +785,16 @@ def _write_error(error: t.Mapping[str, t.Any]) -> Exception:
             fields=dict(fields) if isinstance(fields, dict) else None,
         )
     return OperationFailed(message, code=error.get("code"), details=dict(error))
+
+
+def _filter_keys(flt: t.Any) -> set[str]:
+    """Top-level field names a filter mentions, looking through $and/$or/$nor."""
+    keys: set[str] = set()
+    if isinstance(flt, dict):
+        for key, value in flt.items():
+            if key in ("$and", "$or", "$nor") and isinstance(value, list):
+                for part in value:
+                    keys |= _filter_keys(part)
+            elif not key.startswith("$"):
+                keys.add(key.partition(".")[0])
+    return keys

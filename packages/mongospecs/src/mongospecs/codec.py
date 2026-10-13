@@ -255,6 +255,10 @@ class Codec(abc.ABC):
     @abc.abstractmethod
     def _json_schema(self, cls: type) -> dict[str, t.Any]: ...
 
+    @abc.abstractmethod
+    def defaults(self, cls: type) -> dict[str, t.Any]:
+        """Default values by attribute name, for fields that have one (factories are called)."""
+
     # -- shared ------------------------------------------------------------
 
     def fields(self, cls: type) -> dict[str, FieldInfo]:
@@ -333,6 +337,18 @@ class Codec(abc.ABC):
 
     def encode_value(self, value: t.Any) -> t.Any:
         return to_bson(value)
+
+    def to_json(self, obj: t.Any) -> dict[str, t.Any]:
+        """The model as JSON types, keyed by attribute names; references appear as ids.
+
+        Backends override this with their native serialiser, which is far faster
+        than encoding to BSON types and converting those.
+        """
+        from mongospecs.jsonable import jsonable
+
+        cls = type(obj)
+        names = {f.stored: f.name for f in self.fields(cls).values()}
+        return {names.get(k, k): jsonable(v) for k, v in self.encode(obj).items()}
 
     def json_schema(self, cls: type) -> dict[str, t.Any]:
         """JSON Schema for the model, keyed by attribute names, root inlined, ``$defs`` kept."""

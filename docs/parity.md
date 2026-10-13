@@ -18,9 +18,9 @@ was established: **docs** means it was re-read in the Mongoose documentation for
 | Middleware: document, query, aggregate, model | document hooks; `on_insert`/`on_update`/`on_filter`/`on_delete`; `on_pipeline`; `before_bulk`/`after_bulk` | `test_plugins_hooks.py` | docs |
 | `schema.plugin()`, `mongoose.plugin()` | marker plugins, `SpecConfig(plugins=)`, `Registry(plugins=)` | `test_plugins_hooks.py::test_registry_level_plugin_applies_to_every_model` | memory |
 | `timestamps` | `CreatedAt`, `UpdatedAt` | `test_plugins_hooks.py::test_timestamps_on_every_write_path` | memory |
-| `optimisticConcurrency`, `versionKey` | `Revision` | `test_plugins_hooks.py::test_revision_increments_everywhere` | memory |
-| `populate()` with `match`, `select`, `options`, `perDocumentLimit`, nested paths | `include()` with `match`, `select`, `sort`, `limit`, `per_parent_limit`, dotted paths | `test_relations.py` | memory |
-| Virtual populate (`localField`/`foreignField`, `count`) | `Backref(...)`, `Backref(..., count=True)` | `test_relations.py::test_backrefs_and_counts` | memory |
+| `optimisticConcurrency`, `versionKey` | `Revision` | `test_plugins_hooks.py::test_revision_increments_everywhere` | docs |
+| `populate()` with `match`, `select`, `options`, `perDocumentLimit`, nested paths | `include()` with `match`, `select`, `sort`, `limit`, `per_parent_limit`, dotted paths | `test_relations.py` | docs |
+| Virtual populate (`localField`/`foreignField`, `count`) | `Backref(...)`, `Backref(..., count=True)` | `test_relations.py::test_backrefs_and_counts` | docs |
 | `refPath` | `Ref[A \| B]` | `test_relations.py::test_polymorphic_reference` | memory |
 | Discriminators | `SpecConfig(discriminator=...)` | `test_models_misc.py::test_discriminators_share_a_collection` | docs |
 | Query casting | values cast to the field type | `test_expr.py::test_values_are_cast_to_field_types` | memory |
@@ -32,10 +32,10 @@ was established: **docs** means it was re-read in the Mongoose documentation for
 | Query helpers | `@Model.scope` | `test_plugins_hooks.py::test_named_scopes` | memory |
 | `orFail()` | `.or_fail()`, `.one()` | `test_crud.py::test_find_all_first_one_and_or_fail` | memory |
 | `cursor()`, `eachAsync({parallel})` | `async for`, `.each(fn, concurrency=n)` | `test_crud.py::test_each_with_concurrency` | memory |
-| `bulkWrite`, `bulkSave`, `insertMany({ordered: false})` | `bulk_write`, `bulk_save`, `insert_many(ordered=False)` | `test_bulk_pagination.py` | memory |
+| `bulkWrite`, `bulkSave`, `insertMany({ordered: false})` | `bulk_write`, `bulk_save`, `insert_many(ordered=False)` | `test_bulk_pagination.py` | docs |
 | `Connection.transaction(fn)` resets document state on abort | `registry.transaction(fn)` does the same, also before each retry | `test_tracking_tx.py::test_transaction_abort_rolls_back_database_and_memory` | docs |
 | `syncIndexes`, `diffIndexes`, `autoIndex: false` | `plan_indexes`, `apply_indexes(drop=...)`; never automatic | `test_indexes.py` | memory |
-| `shardKey` | `SpecConfig(shard_key=...)` | `test_streams_sharded.py::test_shard_key_is_added_to_document_writes` | memory |
+| `shardKey` | `SpecConfig(shard_key=...)` | `test_streams_sharded.py::test_shard_key_is_added_to_document_writes` | docs |
 | `createConnection`, `useDb` | several registries; `Model.using(db=...)` | `test_models_misc.py::test_using_another_database` | memory |
 | `maxTimeMS`, `hint`, `comment`, `collation`, read/write concern | `.options(...)`, `SpecConfig`, `Registry(max_time_ms=)` | `test_registry_errors.py::test_default_max_time_ms_from_registry_and_model` | memory |
 | `Model.aggregate()`, `Model.collection` | `Model.aggregate(pipeline, as_=)`, `Model.collection()` | `test_crud.py::test_aggregate_decodes_and_explain` | memory |
@@ -66,3 +66,5 @@ was established: **docs** means it was re-read in the Mongoose documentation for
 | Populated paths replace the id with the document | A `Ref` keeps `.id` and gains `.doc` | One type whether or not it is loaded |
 | Arrays are tracked per element | A changed list is sent whole | Per-element intent is expressed with atomic operators |
 | A document's delete is not version-checked | Soft delete and `save()` are revision-checked; hard delete is not | Recorded as a known gap |
+| `populate()` always runs a separate query per path | `include()` does the same by default and can use `$lookup` instead (`strategy="lookup"`) | Both give the same result; the faster one depends on fan-out, see the benchmarks |
+| `limit` in `populate()` is applied across all parents unless `perDocumentLimit` is used | `limit` is overall, `per_parent_limit` is per parent, without one query per parent | Same two meanings, named for what they do |

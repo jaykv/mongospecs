@@ -87,12 +87,26 @@ async def main():
 | Operations | explicit `Registry` lifecycle, transactions, index planner with gated destructive actions, `$jsonSchema` validators, change streams, multi-database use, shard-key aware writes |
 | Observability | per-command events with model and operation names; logging, OpenTelemetry and Sentry listeners |
 
+## How it is tested
+
+- Unit and contract suites run against real MongoDB (a replica set and a sharded cluster), on
+  every backend, on Python 3.11 to 3.15.
+- A reference application, the storefront in `bench/`, is booted as a real server process and
+  driven over HTTP: a full customer journey on every plug, concurrent buyers that must never
+  oversell, multi-item orders that are all-or-nothing, a change-stream projector that must count
+  each sale exactly once across restarts, and orders that stay consistent across a primary
+  step-down.
+- Every example in the guide pages is executed.
+- Benchmarks and stress scenarios in `bench/` run against real MongoDB; results and the
+  conclusions drawn from them are in `docs/benchmarks.md`.
+
 ## Development
 
 ```
 make install     # uv sync for the whole workspace
 make up          # MongoDB replica set + sharded cluster in Docker
-make check       # ruff, mypy --strict, tests against real MongoDB
+make check       # ruff, mypy --strict, tests against real MongoDB (unit, contract, end-to-end)
+uv run mongospecs-bench run          # benchmarks; `run LOAD` for the HTTP load test; `stress`; `trace`
 ```
 
 The repository is a uv workspace: `packages/mongospecs`, `packages/mongospecs-web` and `bench/`

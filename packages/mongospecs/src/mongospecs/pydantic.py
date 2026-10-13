@@ -89,6 +89,22 @@ class PydanticCodec(Codec):
     def _json_schema(self, cls: type) -> dict[str, t.Any]:
         return t.cast("type[BaseModel]", cls).model_json_schema(by_alias=False)
 
+    def to_json(self, obj: t.Any) -> dict[str, t.Any]:
+        if _HAS_EXCLUDE_COMPUTED:
+            return t.cast("dict[str, t.Any]", obj.model_dump(mode="json", exclude_computed_fields=True))
+        data: dict[str, t.Any] = obj.model_dump(mode="json")
+        for name in type(obj).model_computed_fields:
+            data.pop(name, None)
+        return data
+
+    def defaults(self, cls: type) -> dict[str, t.Any]:
+        fields = t.cast("type[BaseModel]", cls).model_fields
+        return {
+            name: info.get_default(call_default_factory=True)
+            for name, info in fields.items()
+            if not info.is_required()
+        }
+
     def clear_cache(self) -> None:
         super().clear_cache()
         self._adapters.clear()

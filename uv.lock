@@ -1060,7 +1060,9 @@ dependencies = [
 all = [
     { name = "attrs" },
     { name = "msgspec" },
+    { name = "opentelemetry-api" },
     { name = "pydantic" },
+    { name = "sentry-sdk" },
 ]
 attrs = [
     { name = "attrs" },
@@ -1086,10 +1088,12 @@ requires-dist = [
     { name = "msgspec", marker = "extra == 'all'", specifier = ">=0.19" },
     { name = "msgspec", marker = "extra == 'attrs'", specifier = ">=0.19" },
     { name = "msgspec", marker = "extra == 'msgspec'", specifier = ">=0.19" },
+    { name = "opentelemetry-api", marker = "extra == 'all'", specifier = ">=1.20" },
     { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.20" },
     { name = "pydantic", marker = "extra == 'all'", specifier = ">=2.9" },
     { name = "pydantic", marker = "extra == 'pydantic'", specifier = ">=2.9" },
     { name = "pymongo", specifier = ">=4.13,<5" },
+    { name = "sentry-sdk", marker = "extra == 'all'", specifier = ">=2.0" },
     { name = "sentry-sdk", marker = "extra == 'sentry'", specifier = ">=2.0" },
 ]
 provides-extras = ["msgspec", "pydantic", "attrs", "otel", "sentry", "all"]
@@ -1135,6 +1139,9 @@ fastapi = [
 litestar = [
     { name = "litestar" },
 ]
+msgspec = [
+    { name = "msgspec" },
+]
 quart = [
     { name = "quart", version = "0.22.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "quart", version = "0.23.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
@@ -1150,12 +1157,13 @@ requires-dist = [
     { name = "litestar", marker = "extra == 'all'", specifier = ">=2.12" },
     { name = "litestar", marker = "extra == 'litestar'", specifier = ">=2.12" },
     { name = "mongospecs", editable = "packages/mongospecs" },
+    { name = "msgspec", marker = "extra == 'msgspec'", specifier = ">=0.19" },
     { name = "quart", marker = "extra == 'all'", specifier = ">=0.19" },
     { name = "quart", marker = "extra == 'quart'", specifier = ">=0.19" },
     { name = "starlette", marker = "extra == 'all'", specifier = ">=0.40" },
     { name = "starlette", marker = "extra == 'starlette'", specifier = ">=0.40" },
 ]
-provides-extras = ["starlette", "fastapi", "litestar", "quart", "all"]
+provides-extras = ["msgspec", "starlette", "fastapi", "litestar", "quart", "all"]
 
 [[package]]
 name = "mongospecs-workspace"

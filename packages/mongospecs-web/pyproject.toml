@@ -20,6 +20,8 @@ classifiers = [
 dependencies = ["mongospecs>=0.2.0,<0.3"]
 
 [project.optional-dependencies]
+# Optional: responses are encoded with msgspec when it is installed, with the standard library otherwise.
+msgspec = ["msgspec>=0.19"]
 starlette = ["starlette>=0.40"]
 fastapi = ["fastapi>=0.115"]
 litestar = ["litestar>=2.12"]

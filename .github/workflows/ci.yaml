@@ -1,8 +1,9 @@
 name: CI
 
 on:
+  # Branches are tested through their pull request; a push trigger for them too ran every job twice.
   push:
-    branches: [main, "v2/**"]
+    branches: [main]
   pull_request:
 
 permissions:

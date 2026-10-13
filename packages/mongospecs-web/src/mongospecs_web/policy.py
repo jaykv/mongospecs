@@ -24,6 +24,148 @@ INT64_MIN, INT64_MAX = -(2**63), 2**63 - 1
 """MongoDB's largest integer type is 64 bits; a larger integer cannot be stored as one."""
 
 
+class Nested:
+    """Where the private fields are inside the value of one field.
+
+    ``private`` and ``children`` describe an embedded model (by every key it may appear
+    under: attribute name, stored name, the backend's own name); ``elem`` describes the
+    items of a list or the values of a dict.
+    """
+
+    __slots__ = ("children", "elem", "model", "private")
+
+    def __init__(self) -> None:
+        self.model = False
+        self.private: frozenset[str] = frozenset()
+        self.children: dict[str, Nested] = {}
+        self.elem: Nested | None = None
+
+    def hides_something(self, seen: set[int] | None = None) -> bool:
+        seen = set() if seen is None else seen
+        if id(self) in seen:
+            return False
+        seen.add(id(self))
+        return (
+            bool(self.private)
+            or any(child.hides_something(seen) for child in self.children.values())
+            or (self.elem is not None and self.elem.hides_something(seen))
+        )
+
+
+def embedded_models(tp: t.Any, found: dict[type, None] | None = None) -> dict[type, None]:
+    """Every embedded (non-document) model class reachable from an annotation, at any depth."""
+    from mongospecs import Document
+    from mongospecs.codec import _codec_or_none
+
+    found = {} if found is None else found
+    while t.get_origin(tp) is t.Annotated:
+        tp = t.get_args(tp)[0]
+    if isinstance(tp, type) and not issubclass(tp, Document) and t.get_origin(tp) is None:
+        codec = _codec_or_none(tp)
+        if codec is not None and tp not in found:
+            found[tp] = None
+            for info in codec.fields(tp).values():
+                embedded_models(info.type, found)
+        return found
+    if t.get_origin(tp) is Ref:
+        return found  # another document: its own view applies
+    for arg in t.get_args(tp):
+        embedded_models(arg, found)
+    return found
+
+
+def _model_keys(cls: type) -> dict[str, tuple[FieldInfo, frozenset[str]]]:
+    from mongospecs.codec import codec_for
+
+    codec = codec_for(cls)
+    natives = {name: native for name, native, _, _ in codec.raw_fields(cls)}
+    return {
+        name: (info, frozenset({name, info.stored, natives.get(name, name)}))
+        for name, info in codec.fields(cls).items()
+    }
+
+
+def nested_plan(tp: t.Any, cache: dict[type, Nested]) -> Nested | None:
+    """The :class:`Nested` plan for an annotation, or ``None`` when it holds no embedded model."""
+    from mongospecs import Document
+    from mongospecs.codec import _UNION_ORIGINS, _codec_or_none
+
+    while t.get_origin(tp) is t.Annotated:
+        tp = t.get_args(tp)[0]
+    origin = t.get_origin(tp)
+    if origin is Ref:
+        return None
+    if origin is None:
+        if not isinstance(tp, type) or issubclass(tp, Document) or _codec_or_none(tp) is None:
+            return None
+        node = cache.get(tp)
+        if node is None:
+            node = cache[tp] = Nested()
+            node.model = True
+            private: set[str] = set()
+            for info, keys in _model_keys(tp).values():
+                if info.policy.private:
+                    private |= keys
+                    continue
+                child = nested_plan(info.type, cache)
+                if child is not None:
+                    for key in keys:
+                        node.children[key] = child
+            node.private = frozenset(private)
+        return node
+    parts = [plan for arg in t.get_args(tp) if (plan := nested_plan(arg, cache)) is not None]
+    if not parts:
+        return None
+    if origin in _UNION_ORIGINS:
+        if len(parts) == 1:
+            return parts[0]
+        merged = Nested()  # a union: hide whatever any member hides, so nothing can leak
+        for part in parts:
+            merged.model = merged.model or part.model
+            merged.private |= part.private
+            for key, child in part.children.items():
+                merged.children.setdefault(key, child)
+            merged.elem = merged.elem or part.elem
+        return merged
+    container = Nested()
+    container.elem = parts[-1]  # list[X] -> X, dict[str, X] -> X
+    return container
+
+
+def strip_nested(value: t.Any, node: Nested) -> t.Any:
+    """Remove private keys from a JSON-shaped value, in place."""
+    if isinstance(value, dict):
+        if node.model:
+            for key in node.private:
+                value.pop(key, None)
+            for key, child in node.children.items():
+                if key in value:
+                    strip_nested(value[key], child)
+        elif node.elem is not None:
+            for item in value.values():
+                strip_nested(item, node.elem)
+    elif isinstance(value, list) and node.elem is not None:
+        for item in value:
+            strip_nested(item, node.elem)
+    return value
+
+
+def nested_violations(value: t.Any, node: Nested, path: str, out: list[str]) -> None:
+    """Collect the dotted paths of private keys a client supplied."""
+    if isinstance(value, dict):
+        if node.model:
+            out.extend(f"{path}.{key}" for key in value if key in node.private)
+            for key, child in node.children.items():
+                if key in value:
+                    nested_violations(value[key], child, f"{path}.{key}", out)
+        elif node.elem is not None:
+            for key, item in value.items():
+                nested_violations(item, node.elem, f"{path}.{key}", out)
+    elif isinstance(value, list) and node.elem is not None:
+        for index, item in enumerate(value):
+            nested_violations(item, node.elem, f"{path}.{index}", out)
+
+
 def _refs(node: t.Any, out: set[str]) -> None:
     if isinstance(node, dict):
         for key, value in node.items():
@@ -120,6 +262,16 @@ class View:
         self._relations: tuple[FieldInfo, ...] = tuple(
             f for f in self.readable if f.transient or f.ref is not None
         )
+        # Private fields of embedded models, at any depth below a field of this model.
+        cache: dict[type, Nested] = {}
+        self._nested: dict[str, Nested] = {
+            f.name: plan
+            for f in fields.values()
+            if not f.transient and (plan := nested_plan(f.type, cache)) is not None and plan.hides_something()
+        }
+        self._nested_read: tuple[tuple[str, Nested], ...] = tuple(
+            (name, plan) for name, plan in self._nested.items() if name in self._plain
+        )
         revision = next((f for f in fields.values() if f.has(Revision)), None)
         self.revision: str | None = revision.name if revision else None
 
@@ -131,6 +283,8 @@ class View:
             return view_of(type(doc)).serialize(doc, include)
         data = self.meta.codec.to_json(doc)
         out = {name: data.get(name) for name in self._plain}
+        for name, plan in self._nested_read:
+            strip_nested(out[name], plan)
         if include:
             for f in self._relations:
                 if f.name not in include:
@@ -173,6 +327,11 @@ class View:
         if errors:
             raise Unprocessable("The request body names fields that cannot be written.", errors=errors)
         for key, value in data.items():
+            plan = self._nested.get(key)
+            if plan is not None:
+                hidden: list[str] = []
+                nested_violations(value, plan, key, hidden)
+                errors.extend({"field": path, "message": "unknown field"} for path in hidden)
             if _has_oversized_int(value) and not _takes_any_number(self.meta.fields[key].type):
                 errors.append(
                     {"field": key, "message": f"integers must be between {INT64_MIN} and {INT64_MAX}"}
@@ -185,15 +344,32 @@ class View:
 
     def _base(self) -> dict[str, t.Any]:
         base = self.meta.codec.json_schema(self.model)
-        own = base.get("$defs", {}).get(self.model.__name__)
-        if isinstance(own, dict) and self.private:
+        defs = dict(base.get("$defs", {}))
+        hidden_by_name: dict[str, frozenset[str]] = {}
+        if self.private:
             # The model's own definition survives only where the model refers to itself;
             # it must not describe more than the Read view does.
-            hidden = self.private | {self.meta.fields[name].stored for name in self.private}
-            own = dict(own)
-            own["properties"] = {k: v for k, v in own.get("properties", {}).items() if k not in hidden}
-            own["required"] = [k for k in own.get("required", []) if k not in hidden]
-            base = {**base, "$defs": {**base["$defs"], self.model.__name__: own}}
+            hidden_by_name[self.model.__name__] = self.private | {
+                self.meta.fields[name].stored for name in self.private
+            }
+        for info in self.meta.fields.values():
+            for cls in embedded_models(info.type):
+                keys = frozenset().union(*(k for f, k in _model_keys(cls).values() if f.policy.private))
+                if keys:
+                    hidden_by_name[cls.__name__] = hidden_by_name.get(cls.__name__, frozenset()) | keys
+        changed = False
+        for name, hidden in hidden_by_name.items():
+            own = defs.get(name)
+            if isinstance(own, dict):
+                own = dict(own)
+                own["properties"] = {k: v for k, v in own.get("properties", {}).items() if k not in hidden}
+                own["required"] = [k for k in own.get("required", []) if k not in hidden]
+                if not own["required"]:
+                    del own["required"]
+                defs[name] = own
+                changed = True
+        if changed:
+            base = {**base, "$defs": defs}
         return base
 
     def schema(self, kind: t.Literal["read", "create", "patch"]) -> dict[str, t.Any]:

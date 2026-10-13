@@ -1,5 +1,5 @@
 # Documentation: checked on pull requests that touch it, published to GitHub Pages from main.
-# This is the only pipeline a docs-only change starts (see paths-ignore in ci.yaml).
+# This is the only pipeline a docs-only change starts (ci.yaml runs for code and dependencies).
 name: Docs
 
 on:

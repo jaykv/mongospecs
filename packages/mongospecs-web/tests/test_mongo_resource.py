@@ -129,7 +129,12 @@ async def test_crud_round_trip_with_plugins(app):
     # conditional update through the real revision plugin
     ok = await client.patch(f"/v1/stories/{story['id']}", json={"words": 900}, headers={"if-match": '"0"'})
     assert ok.status_code == 200 and ok.headers["etag"] == '"1"' and ok.json()["data"]["reading_minutes"] == 4
-    assert ok.json()["data"]["updated_at"] >= story["updated_at"]
+
+    # compare as instants: serialisers may or may not print a zero fractional second
+    def instant(text):
+        return dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+
+    assert instant(ok.json()["data"]["updated_at"]) >= instant(story["updated_at"])
     stale = await client.patch(f"/v1/stories/{story['id']}", json={"words": 1}, headers={"if-match": '"0"'})
     assert stale.status_code == 412
     # unique index -> 409 with the field named

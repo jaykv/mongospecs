@@ -24,7 +24,7 @@ from datetime import datetime
 from typing import Annotated
 
 from mongospecs import CreatedAt, Inc, Index, Q, Ref, Registry, Revision, SpecConfig, UpdatedAt
-from mongospecs.msgspec import Spec          # or mongospecs.pydantic / mongospecs.attrs
+from mongospecs.msgspec import Spec  # or mongospecs.pydantic / mongospecs.attrs
 
 
 class User(Spec):
@@ -40,7 +40,7 @@ class Article(Spec):
     author: Ref[User] | None = None
     created_at: Annotated[datetime | None, CreatedAt] = None
     updated_at: Annotated[datetime | None, UpdatedAt] = None
-    rev: Annotated[int, Revision] = 0          # optimistic locking
+    rev: Annotated[int, Revision] = 0  # optimistic locking
 
 
 async def main():

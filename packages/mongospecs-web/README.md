@@ -3,7 +3,7 @@
 REST resources for [mongospecs](https://github.com/jaykv/mongospecs) models, described once and
 mounted on the framework you use: plain ASGI, Starlette, FastAPI, Litestar or Quart.
 
-> **Status: 0.2.0, alpha.** The version is always the same as the `mongospecs` release it goes with.
+> **Status: 0.2.0, alpha.**
 
 ```
 pip install "mongospecs-web[fastapi]" "mongospecs[msgspec]"

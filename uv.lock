@@ -1100,14 +1100,14 @@ version = "0.0.0"
 source = { editable = "bench" }
 dependencies = [
     { name = "httpx" },
-    { name = "mongospecs", extra = ["all"] },
+    { name = "mongospecs", extra = ["all", "sentry"] },
     { name = "mongospecs-web", extra = ["all"] },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mongospecs", extras = ["all"], editable = "packages/mongospecs" },
+    { name = "mongospecs", extras = ["all", "sentry"], editable = "packages/mongospecs" },
     { name = "mongospecs-web", extras = ["all"], editable = "packages/mongospecs-web" },
 ]
 

@@ -56,6 +56,8 @@ ignore = ["E501", "RUF012"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["B", "RUF"]
+# Benchmarks define closures inside loops and call them before the next iteration.
+"bench/**" = ["B023"]
 
 [tool.mypy]
 python_version = "3.11"

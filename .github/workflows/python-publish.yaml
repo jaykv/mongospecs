@@ -1,6 +1,7 @@
 # Publishes whichever distribution the release tag names:
 #   mongospecs-v0.2.0      -> packages/mongospecs
-#   mongospecs-web-v0.1.0  -> packages/mongospecs-web
+#   mongospecs-web-v0.2.0  -> packages/mongospecs-web
+# The two packages carry the same version and are released together.
 name: Publish
 
 on:

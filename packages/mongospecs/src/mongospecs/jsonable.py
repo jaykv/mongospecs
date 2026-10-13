@@ -10,17 +10,37 @@ import typing as t
 import uuid
 
 from bson import ObjectId
+from bson.code import Code
+from bson.dbref import DBRef
 from bson.decimal128 import Decimal128
+from bson.max_key import MaxKey
+from bson.min_key import MinKey
+from bson.regex import Regex
+from bson.timestamp import Timestamp
 
 from mongospecs.refs import Ref
+
+_BSON_ONLY = (bytes, bytearray, int, Timestamp, Regex, Code, DBRef, MaxKey, MinKey)
+"""Types a serialiser may hand to :func:`json_default` that only BSON has, or that are
+subclasses of standard types the serialiser does not recognise (``Binary``, ``Int64``)."""
+
 
 __all__ = ["json_default", "jsonable"]
 
 
 def jsonable(value: t.Any) -> t.Any:
     """Convert a BSON-ready value to plain JSON types."""
-    if value is None or isinstance(value, str | bool | int | float):
+    kind = type(value)
+    if value is None or kind is str or kind is bool or kind is int or kind is float:
         return value
+    if isinstance(value, bool | str | float):
+        return value
+    if isinstance(value, int):
+        return int(value)  # bson.Int64 and other int subclasses
+    if isinstance(value, Timestamp):
+        return jsonable(value.as_datetime())
+    if isinstance(value, Regex):
+        return value.pattern
     if isinstance(value, ObjectId | uuid.UUID | decimal.Decimal | Decimal128):
         return str(value)
     if isinstance(value, dt.datetime):
@@ -47,6 +67,9 @@ def json_default(value: t.Any) -> t.Any:
         return str(value)
     if isinstance(value, Ref):
         return jsonable(value.id)
+    if isinstance(value, _BSON_ONLY):
+        # Found in untyped fields: whatever another writer stored there has to be readable.
+        return jsonable(value)
     identifier = getattr(value, "id", None)
     if identifier is not None:  # a document assigned where a reference is expected
         return jsonable(identifier)

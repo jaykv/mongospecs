@@ -417,6 +417,7 @@ class Codec(abc.ABC):
         self.__dict__.pop("_sp", None)
         self.__dict__.pop("_abs", None)
         self.__dict__.pop("_eo", None)
+        self.__dict__.pop("_ut", None)
 
 
 def _none_mode(cls: type) -> str:

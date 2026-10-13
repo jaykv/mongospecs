@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from mongospecs.codec import _UNION_ORIGINS, Codec, RawField, field_error
 from mongospecs.errors import ValidationError
+from mongospecs.jsonable import jsonable
 from mongospecs.markers import SpecConfig
 from mongospecs.model import Document
 from mongospecs.refs import OID, Ref
@@ -36,6 +37,21 @@ def _annotation(info: t.Any) -> t.Any:
     if info.metadata:
         return t.Annotated[(info.annotation, *info.metadata)]
     return info.annotation
+
+
+def _has_untyped(tp: t.Any, seen: set[type]) -> bool:
+    while t.get_origin(tp) is t.Annotated:
+        tp = t.get_args(tp)[0]
+    if tp is t.Any or tp is object or tp in (dict, list, set, tuple, frozenset):
+        return True
+    if isinstance(tp, type) and issubclass(tp, BaseModel) and not issubclass(tp, Document):
+        if tp in seen:
+            return False
+        seen.add(tp)
+        return any(_has_untyped(f.annotation, seen) for f in tp.model_fields.values())
+    if t.get_origin(tp) is Ref:
+        return False
+    return any(_has_untyped(arg, seen) for arg in t.get_args(tp))
 
 
 class _Omit:
@@ -173,12 +189,39 @@ class PydanticCodec(Codec):
         return t.cast("type[BaseModel]", cls).model_json_schema(by_alias=False)
 
     def to_json(self, obj: t.Any) -> dict[str, t.Any]:
+        cls = type(obj)
+        loose = self._untyped(cls)
+        options: dict[str, t.Any] = {"exclude": loose} if loose else {}
         if _HAS_EXCLUDE_COMPUTED:
-            return t.cast("dict[str, t.Any]", obj.model_dump(mode="json", exclude_computed_fields=True))
-        data: dict[str, t.Any] = obj.model_dump(mode="json")
-        for name in type(obj).model_computed_fields:
-            data.pop(name, None)
+            options["exclude_computed_fields"] = True
+        data: dict[str, t.Any] = obj.model_dump(mode="json", **options)
+        if not _HAS_EXCLUDE_COMPUTED:
+            for name in cls.model_computed_fields:
+                data.pop(name, None)
+        if loose:
+            # pydantic cannot serialise the BSON-only values an untyped field may hold (an
+            # ObjectId raises, bytes are read as UTF-8). Those fields are converted by the same
+            # rules the other backends use, so all three give the same JSON.
+            plain = obj.model_dump(mode="python", include=loose)
+            data = {
+                name: jsonable(plain[name]) if name in loose else data[name]
+                for name in cls.model_fields
+                if name in loose or name in data
+            }
         return data
+
+    def _untyped(self, cls: type) -> set[str]:
+        """Fields whose type leaves some value untyped (``Any``, a bare ``dict`` or ``list``),
+        directly or inside an embedded model."""
+        cache: dict[type, set[str]] = self.__dict__.setdefault("_ut", {})
+        hit = cache.get(cls)
+        if hit is None:
+            hit = cache[cls] = {
+                name
+                for name, _native, annotation, _ in self.raw_fields(cls)
+                if _has_untyped(annotation, set())
+            }
+        return hit
 
     def defaults(self, cls: type) -> dict[str, t.Any]:
         fields = t.cast("type[BaseModel]", cls).model_fields

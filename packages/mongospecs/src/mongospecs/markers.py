@@ -109,9 +109,13 @@ class Policy(Marker):
     bounded set, see :data:`FILTER_OPERATORS`).
     """
 
-    insert: bool = True
-    update: bool = True
+    insert: bool | None = None
+    """May be set when creating. Defaults to ``True``, or ``False`` for a private field."""
+    update: bool | None = None
+    """May be changed afterwards. Defaults to ``True``, or ``False`` for a private field."""
     private: bool = False
+    """Never returned, filterable or sortable. Also not writable unless ``insert``/``update`` say so
+    explicitly (``Policy(private=True, insert=True)`` is a write-only field such as a password)."""
     filter: tuple[str, ...] | bool = ()
     sort: bool = False
 
@@ -120,6 +124,14 @@ class Policy(Marker):
         unknown = [op for op in ops if op not in FILTER_OPERATORS]
         if unknown:
             raise ValueError(f"unknown filter operators {unknown}; allowed: {list(FILTER_OPERATORS)}")
+
+    @property
+    def can_insert(self) -> bool:
+        return (not self.private) if self.insert is None else self.insert
+
+    @property
+    def can_update(self) -> bool:
+        return (not self.private) if self.update is None else self.update
 
     @property
     def filter_ops(self) -> tuple[str, ...]:

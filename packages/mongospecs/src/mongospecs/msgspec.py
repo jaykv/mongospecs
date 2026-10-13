@@ -18,6 +18,7 @@ from mongospecs.refs import OID, OID_PATTERN, Ref, _to_object_id, coerce_ref
 __all__ = ["CODEC", "MsgspecCodec", "Spec", "SpecAdapter"]
 
 _PATH = re.compile(r" - at `\$\.([^`.\[]+)")
+_MISSING = re.compile(r"missing required field `([^`]+)`")
 
 
 def dec_hook(tp: t.Any, obj: t.Any) -> t.Any:
@@ -41,7 +42,7 @@ def schema_hook(tp: t.Any) -> dict[str, t.Any]:
 
 def _error(cls: type, exc: Exception, name: str | None = None) -> ValidationError:
     message = str(exc)
-    match = _PATH.search(message)
+    match = _PATH.search(message) or _MISSING.search(message)
     field = name or (match.group(1) if match else None)
     return field_error(cls, field, _PATH.sub("", message) if name else message)
 

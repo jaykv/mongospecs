@@ -230,7 +230,8 @@ async def test_sentry_listener_records_spans_in_the_active_transaction(m, make_r
         await m.User.count()  # outside any transaction: nothing to attach to, nothing sent
         sentry_sdk.flush()
     finally:
-        sentry_sdk.init()  # switch the SDK off again
+        # Switch the SDK off again, without letting it auto-enable framework integrations.
+        sentry_sdk.init(dsn=None, default_integrations=False, auto_enabling_integrations=False)
     (event,) = captured
     spans = event["spans"]
     assert [s["description"] for s in spans] == ["User.insert", "User.find", "User.aggregate"]

@@ -165,8 +165,12 @@ class ModelMeta:
 
     # -- casting ---------------------------------------------------------------
 
-    def cast(self, path: str, value: t.Any) -> t.Any:
-        """Coerce a filter value to the type of the field at ``path`` and make it BSON-ready."""
+    def cast(self, path: str, value: t.Any, *, lax: bool = False) -> t.Any:
+        """Coerce a filter value to the type of the field at ``path`` and make it BSON-ready.
+
+        ``lax`` also accepts strings for numbers and booleans, for values that
+        arrive as text (URL query strings).
+        """
         if value is None:
             return None
         info = self.fields.get(path) or self.by_stored.get(path)
@@ -180,12 +184,12 @@ class ModelMeta:
         if loose is None:
             loose = self._loose[info.name] = loosen(info.type)
         try:
-            return to_bson(self.validate_type(loose, value))
+            return to_bson(self.validate_type(loose, value, lax=lax))
         except ValidationError as exc:
             elem = element_type(loose)
             if elem is not None and not isinstance(value, list | tuple | set | frozenset):
                 try:
-                    return to_bson(self.validate_type(elem, value))
+                    return to_bson(self.validate_type(elem, value, lax=lax))
                 except ValidationError:
                     pass
             raise QueryError(f"cannot cast {value!r} to {self.model.__name__}.{info.name}: {exc}") from exc
@@ -200,7 +204,7 @@ class ModelMeta:
                 return ObjectId(value)
         return to_bson(value)
 
-    def validate_type(self, tp: t.Any, value: t.Any) -> t.Any:
+    def validate_type(self, tp: t.Any, value: t.Any, *, lax: bool = False) -> t.Any:
         """Validate a value against a bare type with this model's backend."""
         if self.codec.name == "pydantic":
             import pydantic
@@ -224,7 +228,7 @@ class ModelMeta:
         from mongospecs.msgspec import dec_hook
 
         try:
-            return msgspec.convert(value, tp, dec_hook=dec_hook)
+            return msgspec.convert(value, tp, dec_hook=dec_hook, strict=not lax)
         except (msgspec.ValidationError, ValueError) as exc:
             raise ValidationError(str(exc)) from exc
 

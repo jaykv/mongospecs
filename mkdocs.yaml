@@ -82,15 +82,4 @@ plugins:
 nav:
 - Home:
   - Overview: index.md
-- API Reference:
-  - mongospecs:
-    - base: reference/base.md
-    - attrs: reference/attrs.md
-    - msgspec: reference/msgspec.md
-    - pydantic: reference/pydantic.md
-    - query: reference/query.md
-    - se: reference/se.md
-    - ops: reference/ops.md
-    - empty: reference/empty.md
-    - utils: reference/utils.md
-    - bson: reference/bson.md
+  - v1 test inventory: v1-test-inventory.md

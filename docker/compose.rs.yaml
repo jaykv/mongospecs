@@ -1,0 +1,23 @@
+# Single-node replica set for tests: transactions and change streams need one.
+#   docker compose -f docker/compose.rs.yaml up -d --wait
+#   MONGOSPECS_TEST_URI=mongodb://localhost:27117/?replicaSet=rs0
+name: mongospecs-rs
+services:
+  rs:
+    image: mongo:${MONGO_VERSION:-8.0}
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--port", "27117"]
+    ports:
+      - "27117:27117"
+    tmpfs:
+      - /data/db
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          mongosh --port 27117 --quiet --eval
+          "try { if (!db.hello().isWritablePrimary) throw 1 } catch (e) {
+          try { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'localhost:27117'}]}) } catch (e2) {}
+          quit(1) }"
+      interval: 2s
+      timeout: 10s
+      retries: 60

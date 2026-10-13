@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mongospecs"
+version = "0.2.0"
+description = "Async MongoDB ODM for msgspec, pydantic and attrs models"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Jay", email = "jay.github0@gmail.com" }]
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: AsyncIO",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Topic :: Database",
+    "Typing :: Typed",
+]
+dependencies = ["pymongo>=4.13,<5"]
+
+[project.optional-dependencies]
+msgspec = ["msgspec>=0.19"]
+pydantic = ["pydantic>=2.9"]
+attrs = ["attrs>=24.2", "msgspec>=0.19"]
+otel = ["opentelemetry-api>=1.20"]
+sentry = ["sentry-sdk>=2.0"]
+all = ["msgspec>=0.19", "pydantic>=2.9", "attrs>=24.2"]
+
+[project.urls]
+Repository = "https://github.com/jaykv/mongospecs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mongospecs"]

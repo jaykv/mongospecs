@@ -1,63 +1,66 @@
-[tool.poetry]
-name = "mongospecs"
-version = "0.1.4"
-description = "simple mongo ODM with support for msgspec, pydantic, and attrs"
-authors = ["Jay <jay.github0@gmail.com>"]
-repository = "https://github.com/jaykv/mongospecs"
-readme = "README.md"
-packages = [{include = "mongospecs"}]
+[project]
+name = "mongospecs-workspace"
+version = "0.0.0"
+description = "Workspace root for mongospecs and mongospecs-web. Not published."
+requires-python = ">=3.11"
+dependencies = []
 
-[tool.poetry.dependencies]
-python = "^3.9"
-msgspec = "^0.18.4"
-pymongo = "^4.5.0"
-methodtools = "^0.4.7"
-blinker = "^1.6.3"
-typing-extensions = "^4.8.0"
+[tool.uv]
+package = false
 
-[tool.poetry.group.pydantic.dependencies]
-pydantic = "^2.5.2"
+[tool.uv.workspace]
+members = ["packages/*", "bench"]
 
-[tool.poetry.group.attrs.dependencies]
-attrs = "^23.1.0"
+[tool.uv.sources]
+mongospecs = { workspace = true }
+mongospecs-web = { workspace = true }
+mongospecs-bench = { workspace = true }
 
-[tool.poetry.group.dev.dependencies]
-pytest = "^7.2.1"
-ruff = "^0.3.0"
-mypy = "^1.3.0"
-mongomock = "^4.1.2"
-
-[tool.poetry.group.docs.dependencies]
-mkdocs-material = "^9.4.12"
-mkdocstrings = "^0.24.0"
-mkdocstrings-python = "^1.7.5"
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
-
-[tool.ruff]
-line-length = 120
-
-[tool.ruff.lint]
-extend-select = ["I"]
-ignore-init-module-imports = true
-ignore = ["F811"]
-
-[tool.mypy]
-#plugins = ["pydantic.mypy"]
-follow_imports = "silent"
-ignore_missing_imports = true
-show_error_codes = true
-enable_error_code = [
-    "truthy-bool", 
-    "truthy-iterable", 
-    "redundant-expr",
-    "unused-awaitable",
-    "possibly-undefined",
-    "redundant-self"
+[dependency-groups]
+dev = [
+    "mongospecs[all]",
+    "mongospecs-web[all]",
+    "mongospecs-bench",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "httpx>=0.27",
+    "opentelemetry-sdk>=1.20",
+    "sentry-sdk>=2.0",
+]
+docs = [
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.26",
 ]
 
-[[tool.mypy.overrides]]
-module = "yaml"
-ignore_missing_imports = true
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib -ra"
+testpaths = ["packages/mongospecs/tests", "packages/mongospecs-web/tests", "bench/tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+markers = [
+    "sharded: needs the sharded cluster from docker/compose.sharded.yaml",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+src = ["packages/mongospecs/src", "packages/mongospecs-web/src", "bench/src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "RUF"]
+ignore = ["E501", "RUF012"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["B", "RUF"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+show_error_codes = true
+mypy_path = ["packages/mongospecs/src", "packages/mongospecs-web/src", "bench/src"]
+explicit_package_bases = true
+plugins = ["pydantic.mypy"]

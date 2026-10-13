@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "v2/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --all-packages --python 3.13
+      - run: make lint
+      - run: make types
+      - run: make build
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+        mongo: ["8.0"]
+        experimental: [false]
+        include:
+          - python: "3.13"
+            mongo: "7.0"
+            experimental: false
+          - python: "3.14t"
+            mongo: "8.0"
+            experimental: true
+    continue-on-error: ${{ matrix.experimental }}
+    env:
+      MONGO_VERSION: ${{ matrix.mongo }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Start MongoDB (replica set and sharded cluster)
+        run: make up
+      - run: uv sync --all-packages --python ${{ matrix.python }}
+      - run: uv run pytest
+      - name: Container logs
+        if: failure()
+        run: |
+          docker compose -f docker/compose.rs.yaml logs --tail 100
+          docker compose -f docker/compose.sharded.yaml logs --tail 100

@@ -244,6 +244,40 @@ BSON-to-model decoder as a separate optional package behind `Codec.decode(bytes)
 already there: tracked reads receive undecoded BSON from the driver today. A Rust driver is not
 indicated by anything here.
 
+## Hot paths after the performance review
+
+A review profiled the library and listed thirteen places where work could be saved. Workload B9
+measures them through public entry points: CPU time of the client process, and commands sent.
+Before is `bench/results/49a32a9/B9.json`, after is `bench/results/fb543de/B9.json` (msgspec rows).
+
+| Path | Before | After |
+|---|---|---|
+| Reverse relation with `per_parent_limit=2`, 20 parents × 100 children | 23.0 ms CPU | 1.5 ms CPU |
+| Web `DELETE` (soft) | 2 commands | 1 command |
+| Route match, last of 255 routes | 19.1 µs | 1.3 µs |
+| Route match, last of 1005 routes | 73.3 µs | 15.4 µs |
+| Serialise a document for a response | 4.3 µs through the model | 2.5 µs from the stored document |
+| Web `GET` list of 100, per document | 10.9 µs | 10.1 µs |
+| `Model.get(id)` | 248 µs | 218 µs |
+| `find().all()`, 100 tracked, per document | 8.7 µs | 9.8 µs |
+
+What this shows:
+
+- The large wins are where work was avoided altogether: children that were fetched to be thrown
+  away, a read before a delete, a scan over every route.
+- Serialising from the stored document is 1.7 to 2.6 times cheaper than going through the model
+  (pydantic 6.7 → 2.9 µs, attrs 6.4 → 2.5 µs), but a whole list request improves by under 10% here:
+  the driver and the event loop are most of a request, as the Rust section above already found.
+- The last three rows are within run-to-run variation on this machine. The cheaper weak reference
+  per tracked document, the cheaper query clone and concurrent includes are correct and tested,
+  but this benchmark cannot show their effect; do not read the tracked row as a regression or the
+  `get` row as a gain.
+
+Not done, and why: compiling encode plans and skipping reference normalisation on decode (review
+items 2 and 3) change the decode and encode core for a gain B1 puts at a few microseconds per
+document; they are left until a workload shows per-document CPU, rather than the driver, is the
+limit.
+
 ## Limits of these measurements
 
 - One machine, client and server together, MongoDB in Docker on macOS. Network cost is unrealistically

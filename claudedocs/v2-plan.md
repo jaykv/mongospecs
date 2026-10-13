@@ -887,6 +887,7 @@ Recorded per §7.1 rule 4. Each one names what changed and why; none invalidates
 | A33 | §4.3 | Filter values are cast by one rule on all backends (exact type, else text that reads as the type). `find().on_invalid("raise" \| "skip" \| "raw")` | Second review |
 | A34 | §4.8 | `Policy(private=True)` is enforced on fields of embedded models at any depth: not serialised, a 422 when supplied, absent from schemas | Third review item A. PATCH replaces an embedded object whole, so a client that patches the parent object clears server-set private values inside it; documented, not changed |
 | A35 | §4.2 | `StoreNone` / `OmitNone` markers and `SpecConfig(none="omit" \| "store")`. Embedded models resolve the setting from their own markers, or from a `__spec__` if they declare one; they do not inherit the parent document's setting. A unique sparse index over a field that stores null is a `ConfigurationError`. No warning is raised for a partial filter on `$type: null` over an omitted field | Requested as the opt-out from A30. The embedded rule keeps one model's stored shape the same wherever it is embedded |
+| A36 | §4.3 | Cursor pagination handles documents without a value for a sort key (first ascending, last descending) and builds the cursor from stored values, not model defaults | Found while testing raw reads: such documents were skipped or ended the walk. Became common once None was no longer stored (A30) |
 
 New node:
 
@@ -927,3 +928,28 @@ Known and not changed:
 - S7 (confirming every Mongoose parity row against its documentation) is done for 28 of 35 rows;
   `docs/parity.md` marks the 7 that are still from memory (alias, `useDb`, per-query driver options,
   `exists`/counts, subdocuments and maps, getters/setters, virtuals).
+
+### Performance review (2026-10-13): decisions
+
+Thirteen findings from a profiling review. Numbers are from workload B9, `bench/results/49a32a9`
+(before) and `bench/results/fb543de` (after).
+
+| # | Finding | Decision | Reason |
+|---|---|---|---|
+| 1 | Web reads build a model only to serialise it; private fields travel over the wire | Implemented: projection of the readable fields, serialise from the stored document when certain to be identical, model path otherwise (`mongospecs_web.fastread`) | Serialise alone 4.3 → 2.5 µs/doc; whole request under 10% because the driver dominates. Kept for the projection and because it is verified equal |
+| 2 | Refs handled twice on decode (dec_hook, then normalisation) | Not done | Changes the decode core of three backends for a gain of about 1 µs/doc; revisit if per-document CPU becomes the limit |
+| 3 | Encode is a Python walker; save rebuilds the snapshot through the model | Not done | Same reason; the model round trip is also what keeps a load from looking like an edit (A15/A16) |
+| 4 | `weakref.finalize` per tracked document | Implemented: one `weakref.ref` held on the state, guarded against id reuse | Cheap and contained; effect not visible in B9 |
+| 5 | Batched includes run one after another | Implemented: gathered outside a session | A session cannot run two operations at once, so inside a transaction they stay serial |
+| 6 | `per_parent_limit` applied after fetching every child | Implemented: `$sort` + `$group` with `$firstN` picks ids on the server | 23.0 → 1.5 ms CPU for 20 parents × 100 children |
+| 7 | Web DELETE is two round trips | Implemented: one conditional write unless the model has delete hooks or cascades | 2 → 1 commands |
+| 8 | `Query._clone` cost; `get` through `find().first()` | Clone implemented (slot copy). `find_one` fast path not done | `get` 248 → 218 µs is within noise; a second read path is not worth it |
+| 9 | Hard delete of a cascade target needs a transaction, so a replica set | Documented | A cascade that half-completes is worse than a clear requirement |
+| 10 | `total=True` is a full count per request | Documented; totals are already opt-in per resource | An estimate is wrong for any filtered listing; a cache belongs to the application |
+| 11 | Routing scans every route | Implemented: lookup by resource, then that resource's patterns | 19.1 → 1.3 µs at 255 routes |
+| 12 | No backpressure | Implemented `Api(max_concurrency=)` and 503 for `PoolTimeout`; pool defaults left to the driver and documented | Changing the driver's defaults silently would surprise; the guide says what to set |
+| 13 | Memory shape of pydantic documents; `all()` materialises | Documented | Inherent to the model library |
+
+Design-level options not taken: per-model compiled plans shared by decode and encode, lazy `Ref`
+materialisation, an explain-sampling listener, state on the instance for free-threading, a native
+decoder. None is needed by a measured workload yet.

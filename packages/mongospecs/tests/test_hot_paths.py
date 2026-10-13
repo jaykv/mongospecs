@@ -206,3 +206,20 @@ async def test_per_parent_limit_on_a_list_reference_still_works(library):
     loaded = await Book.find(Q.id == books[0].id).include("co_writers", per_parent_limit=1).one()
     assert len(loaded.co_writers) == 2 and sum(r.loaded for r in loaded.co_writers) >= 1
     assert asyncio.get_running_loop() is not None
+
+
+async def test_a_full_pool_fails_fast_when_a_wait_limit_is_set(m, make_registry, db_name):
+    """Backs the production guide: with waitQueueTimeoutMS an exhausted pool raises instead of queueing."""
+    from mongospecs import PoolTimeout
+
+    registry = await make_registry(m.User, maxPoolSize=1, waitQueueTimeoutMS=100)
+    users = registry.manager(m.User)
+    await users.insert(m.User(name="a"))
+    slow = asyncio.create_task(
+        users.collection.find_one({"$where": "function() { sleep(600); return true; }"})
+    )
+    await asyncio.sleep(0.15)  # the only connection is now busy
+    with pytest.raises(PoolTimeout):
+        await users.count()
+    await slow
+    assert await users.count() == 1  # and it recovers once the connection is free

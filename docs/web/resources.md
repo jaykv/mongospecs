@@ -149,6 +149,14 @@ on patch (a float or Decimal field takes it as that type). A guard listed in mor
 runs once per request. Private fields appear nowhere in `openapi.json`, and it only publishes
 the nested definitions that the Read, Create and Patch schemas refer to.
 
+`Policy(private=True)` also applies to the fields of embedded models, at any depth: they are never
+in a response, a request that supplies one gets a 422, and they are in no schema. A `PATCH` that
+sends an embedded object replaces it whole, so private values inside it are cleared; patch the
+other fields of the parent, or set such values in a server-side hook.
+
+`Api(max_concurrency=N)` answers the request beyond N in flight with 503 and `Retry-After`. See
+[Tuning for production](../guide/production.md).
+
 `DELETE` honours `If-Match` like `PATCH`, and the row scope is part of the delete's own filter.
 `HEAD` and `OPTIONS` are answered by `api.handle` and the pure ASGI plug; the framework plugs leave
 them to the framework.

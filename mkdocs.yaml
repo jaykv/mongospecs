@@ -86,6 +86,7 @@ nav:
   - Relations: guide/relations.md
   - Hooks and plugins: guide/plugins.md
   - Running in production: guide/operations.md
+  - Tuning for production: guide/production.md
 - Web:
   - Resources: web/resources.md
   - Plugs: web/plugs.md

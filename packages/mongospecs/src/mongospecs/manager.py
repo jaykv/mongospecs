@@ -19,6 +19,7 @@ from mongospecs import tracking
 from mongospecs.errors import (
     DocumentNotFound,
     DuplicateKeyError,
+    MongoSpecsError,
     OperationFailed,
     QueryError,
     StaleDocumentError,
@@ -35,11 +36,13 @@ if t.TYPE_CHECKING:
 
     from mongospecs.query import Query
 
-__all__ = ["BulkResult", "Manager"]
+__all__ = ["BulkResult", "Manager", "UpdateCount"]
 
 T = t.TypeVar("T")
 
 _MANAGED_MARKERS = (CreatedAt, UpdatedAt, DeletedAt, Revision)
+# find() option name -> aggregate() option name
+_AGG_NAMES = {"max_time_ms": "maxTimeMS", "batch_size": "batchSize", "allow_disk_use": "allowDiskUse"}
 
 
 class BulkResult(t.Generic[T]):
@@ -60,6 +63,35 @@ class BulkResult(t.Generic[T]):
 
     def __repr__(self) -> str:
         return f"BulkResult(inserted={len(self.inserted)}, errors={len(self.errors)})"
+
+
+class UpdateCount(int):
+    """The number of documents a filter-based update modified, with the match count alongside.
+
+    It is an ``int`` (the modified count), so existing arithmetic and comparisons work;
+    ``.matched`` also counts documents that matched but already had the new values.
+    """
+
+    matched: int
+    modified: int
+
+    def __new__(cls, matched: int, modified: int) -> UpdateCount:
+        self = super().__new__(cls, modified)
+        self.matched = matched
+        self.modified = modified
+        return self
+
+    def __repr__(self) -> str:
+        return f"UpdateCount(matched={self.matched}, modified={self.modified})"
+
+    def __str__(self) -> str:
+        return int.__repr__(self)
+
+    def __format__(self, spec: str) -> str:
+        return int(self).__format__(spec)
+
+    def __reduce__(self) -> tuple[t.Any, ...]:
+        return (UpdateCount, (self.matched, self.modified))
 
 
 class Manager(t.Generic[T]):
@@ -84,6 +116,7 @@ class Manager(t.Generic[T]):
             *(f.name for f in self.meta.fields.values() if any(f.has(m) for m in _MANAGED_MARKERS)),
         )
         self._collection: AsyncCollection[dict[str, t.Any]] | None = None
+        self._raw_collection: t.Any = None
         self._cascades: list[t.Any] | None = None
 
     # -- plumbing --------------------------------------------------------------
@@ -104,6 +137,16 @@ class Manager(t.Generic[T]):
                 self.meta.collection, **options
             )
         return self._collection
+
+    @property
+    def raw_collection(self) -> t.Any:
+        """The collection, configured to hand back undecoded BSON (used for tracked reads)."""
+        if self._raw_collection is None or not self.registry.is_open:
+            from bson.raw_bson import RawBSONDocument
+
+            options = self.registry._codec_options.with_options(document_class=RawBSONDocument)
+            self._raw_collection = self.collection.with_options(codec_options=options)
+        return self._raw_collection
 
     def using(
         self,
@@ -150,6 +193,11 @@ class Manager(t.Generic[T]):
         if "collation" not in kw and self.meta.config.collation is not None:
             kw["collation"] = self.meta.config.collation
         return kw
+
+    def _agg_kw(self, session: t.Any, options: t.Mapping[str, t.Any] | None = None) -> dict[str, t.Any]:
+        """Read options spelled the way ``aggregate`` and ``count_documents`` expect them."""
+        kw = self._read_kw(session, options)
+        return {_AGG_NAMES.get(k, k): v for k, v in kw.items() if k != "no_cursor_timeout"}
 
     def scoped(
         self,
@@ -229,14 +277,46 @@ class Manager(t.Generic[T]):
             for hook in meta.hooks(when, event):
                 await hook(ctx, doc)
 
+    def _has_hooks(self, *events: str) -> bool:
+        """Whether a document hook could run for any of ``events`` (bulk paths skip the calls otherwise)."""
+        for plugin in self.plugins:
+            if type(plugin).before is not Plugin.before or type(plugin).after is not Plugin.after:
+                return True
+        return any(self.meta.hooks(when, event) for when in ("before", "after") for event in events)
+
+    def _validated(self, doc: t.Any, validate: bool | None) -> bool:
+        return meta_of(type(doc)).config.validate_writes if validate is None else validate
+
+    def _check(
+        self, doc: t.Any, encoded: t.Mapping[str, t.Any], changed: t.Iterable[str] | None = None
+    ) -> None:
+        """Raise :class:`ValidationError` unless ``encoded``, the document as it is about to be
+        stored, fits the model. The model libraries do not check a value assigned to an
+        attribute (msgspec and attrs do not check the constructor either), so this is where a
+        wrongly typed value is caught: before it is written, not when it is next read.
+
+        ``changed`` limits the check to those stored keys, for a document that was loaded with
+        a projection and so cannot be judged as a whole.
+        """
+        meta = meta_of(type(doc))
+        if changed is None:
+            meta.codec.decode(type(doc), encoded)
+            return
+        for stored in changed:
+            info = meta.by_stored.get(stored)
+            if info is not None and not info.transient:
+                meta.codec.validate_field(type(doc), info.name, encoded.get(stored))
+
     # -- document-level writes -----------------------------------------------------
 
-    async def insert(self, doc: T, *, session: t.Any = None) -> T:
+    async def insert(self, doc: T, *, session: t.Any = None, validate: bool | None = None) -> T:
         ctx = self.ctx("insert", session, doc=doc)
         await self._hooks("before", ("insert", "save"), ctx, doc)
+        encoded = self.meta.encode(doc)
+        if self._validated(doc, validate):
+            self._check(doc, encoded)
         if isinstance(session, Tx):
             session.record(doc, self.managed_attrs)
-        encoded = self.meta.encode(doc)
         if encoded.get("_id") is None:
             encoded.pop("_id", None)
         for plugin in self.plugins:
@@ -266,17 +346,33 @@ class Manager(t.Generic[T]):
             update["$unset"] = {key: "" for key in to_unset}
         return current, update
 
-    async def save(self, doc: T, *, session: t.Any = None) -> T:
+    async def save(self, doc: T, *, session: t.Any = None, validate: bool | None = None) -> T:
         """Insert a new document, or send only what changed on a tracked one."""
         state = tracking.state_of(doc)
         if state is None:
-            return await self.insert(doc, session=session)
+            try:
+                return await self.insert(doc, session=session, validate=validate)
+            except DuplicateKeyError as exc:
+                if "_id" not in exc.fields:
+                    raise
+                # An id that already exists on a document we hold no snapshot for: it came from
+                # lean(), copy/deepcopy, or pickling, not from a tracked read.
+                raise DuplicateKeyError(
+                    f"{self.model.__name__} {t.cast(t.Any, doc).id!r} already exists and this instance is "
+                    "not tracked (it is a lean read, a copy, or was unpickled), so save() tried to insert "
+                    "it. Load it with a tracked query, or adopt a raw document with Model.hydrate().",
+                    code=exc.code,
+                    details=exc.details,
+                    fields=exc.fields,
+                ) from exc
         ctx = self.ctx("update", session, doc=doc, snapshot=state.snapshot)
         await self._hooks("before", ("save",), ctx, doc)
         current, update = self._delta(doc, state)
         if update:
             flt: dict[str, t.Any] = {"_id": state.snapshot["_id"], **self._shard_filter(state.snapshot)}
             user_keys = _touched(update)
+            if self._validated(doc, validate):
+                self._check(doc, current, _heads(user_keys) if state.partial is not None else None)
             for plugin in self.plugins:
                 plugin.on_update(ctx, flt, update)
             with self._op("save"):
@@ -301,7 +397,21 @@ class Manager(t.Generic[T]):
             )
         raise DocumentNotFound(f"{self.model.__name__} {flt['_id']!r} does not exist")
 
-    async def delete_document(self, doc: T, *, session: t.Any = None, hard: bool = False) -> None:
+    async def delete_document(
+        self,
+        doc: T,
+        *,
+        session: t.Any = None,
+        hard: bool = False,
+        condition: t.Mapping[str, t.Any] | None = None,
+        if_rev: int | None = None,
+    ) -> None:
+        """Delete a document (softly when the model has a ``DeletedAt`` field, unless ``hard``).
+
+        ``condition`` is an extra filter the document must still satisfy at the moment of the
+        delete (a row scope, for instance). With a ``Revision`` field the delete also requires
+        the revision that was loaded, or ``if_rev`` when given.
+        """
         any_doc = t.cast(t.Any, doc)
         if any_doc.id is None:
             raise QueryError("cannot delete a document that has no id")
@@ -310,7 +420,15 @@ class Manager(t.Generic[T]):
         ctx = self.ctx("delete", session, doc=doc, snapshot=snapshot)
         await self._hooks("before", ("delete",), ctx, doc)
         flt: dict[str, t.Any] = {"_id": snapshot["_id"], **self._shard_filter(snapshot)}
+        if if_rev is not None:
+            ctx.extra["if_rev"] = if_rev
         soft = None if hard else self._soft_delete(ctx, flt)
+        revision = next((f for f in self.meta.fields.values() if f.has(Revision)), None)
+        if revision is not None and (state is not None or if_rev is not None):
+            expected = if_rev if if_rev is not None else snapshot.get(revision.stored)
+            flt[revision.stored] = {"$in": [0, None]} if not expected else expected
+        if condition:
+            flt = and_filters(flt, condition)
 
         async def run(s: t.Any) -> None:
             if isinstance(s, Tx):
@@ -320,7 +438,7 @@ class Manager(t.Generic[T]):
                     result = await self.collection.update_one(flt, soft, **self._kw(s))
                 matched = result.matched_count
             else:
-                await self._cascade([snapshot["_id"]], s)
+                await self._cascade([snapshot["_id"]], s, set())
                 with self._op("delete"):
                     matched = (await self.collection.delete_one(flt, **self._kw(s))).deleted_count
             if matched == 0:
@@ -342,6 +460,59 @@ class Manager(t.Generic[T]):
             tracking.forget(doc)
         await self._hooks("after", ("delete",), ctx, doc)
 
+    def _needs_document_to_delete(self, hard: bool) -> bool:
+        if self.meta.hooks("before", "delete") or self.meta.hooks("after", "delete"):
+            return True
+        for plugin in self.plugins:
+            if type(plugin).before is not Plugin.before or type(plugin).after is not Plugin.after:
+                return True
+        return False
+
+    async def delete_by_id(
+        self,
+        id: t.Any,
+        *,
+        condition: t.Mapping[str, t.Any] | None = None,
+        if_rev: int | None = None,
+        hard: bool = False,
+        session: t.Any = None,
+    ) -> bool:
+        """Delete one document by id in a single conditional write, without loading it.
+
+        Returns ``False`` without doing anything when the delete needs the document: the
+        model has delete hooks, or it is a hard delete with cascades to run. Otherwise
+        deletes (softly when the model has a ``DeletedAt`` field, unless ``hard``) and
+        returns ``True``. Raises :class:`DocumentNotFound` when no document with this id
+        satisfies ``condition``, and :class:`StaleDocumentError` when ``if_rev`` is stale.
+        """
+        if self._needs_document_to_delete(hard):
+            return False
+        ctx = self.ctx("delete", session)
+        base = and_filters(self.scoped(ctx, {"_id": id}, False), condition)
+        flt = dict(base)
+        if if_rev is not None:
+            ctx.extra["if_rev"] = if_rev
+        soft = None if hard else self._soft_delete(ctx, flt)
+        if soft is None and self._cascade_rules():
+            return False
+        revision = next((f for f in self.meta.fields.values() if f.has(Revision)), None)
+        if revision is not None and if_rev is not None and revision.stored not in flt:
+            # a soft delete is an update, and the revision plugin has already added the condition
+            flt[revision.stored] = {"$in": [0, None]} if not if_rev else if_rev
+        with self._op("delete"):
+            if soft is not None:
+                matched = (await self.collection.update_one(flt, soft, **self._kw(session))).matched_count
+            else:
+                matched = (await self.collection.delete_one(flt, **self._kw(session))).deleted_count
+        if matched:
+            return True
+        if if_rev is not None:
+            with self._op("delete"):
+                exists = await self.collection.count_documents(base, limit=1, **self._kw(session))
+            if exists:
+                raise StaleDocumentError(f"{self.model.__name__}: revision {if_rev} is no longer current")
+        raise DocumentNotFound(f"{self.model.__name__} {id!r} does not exist")
+
     def _soft_delete(self, ctx: OpCtx, flt: dict[str, t.Any]) -> dict[str, t.Any] | None:
         for plugin in self.plugins:
             update = plugin.on_delete(ctx, flt)
@@ -352,18 +523,24 @@ class Manager(t.Generic[T]):
         return None
 
     async def reload(self, doc: T, *, session: t.Any = None) -> T:
-        """Refresh a document in place from the database and reset its snapshot."""
+        """Refresh a document in place from the database and reset its snapshot.
+
+        ``Deferred`` fields stay unloaded, as they would be on a fresh read.
+        """
         any_doc = t.cast(t.Any, doc)
         with self._op("reload"):
             raw = await self.collection.find_one(
-                {"_id": self.meta.cast("id", any_doc.id)}, **self._kw(session)
+                {"_id": self.meta.cast("id", any_doc.id)}, self.default_projection(), **self._kw(session)
             )
         if raw is None:
             raise DocumentNotFound(f"{self.model.__name__} {any_doc.id!r} does not exist")
         fresh = self.meta.decode(raw)
-        for name in meta_of(type(doc)).fields:
-            setattr(doc, name, getattr(fresh, name))
-        tracking.track(doc, meta_of(type(doc)).encode(doc), self)
+        deferred = set(self.meta.deferred)
+        meta = meta_of(type(doc))
+        for name, info in meta.fields.items():
+            if info.stored not in deferred:
+                setattr(doc, name, getattr(fresh, name))
+        tracking.track(doc, meta.encode(doc), self, self._default_partial())
         return doc
 
     # -- filter-based writes ---------------------------------------------------------
@@ -384,6 +561,12 @@ class Manager(t.Generic[T]):
             ctx.extra["upsert"] = True
             if self.meta.disc_key:
                 update.setdefault("$setOnInsert", {})[self.meta.disc_key] = self.meta.disc_value
+            # Give the inserted document the model's defaults (Mongoose: setDefaultsOnInsert),
+            # except where the update or the filter already decides the value.
+            taken = {key.partition(".")[0] for body in update.values() for key in body} | _filter_keys(flt)
+            for stored, value in self.meta.insert_defaults().items():
+                if stored not in taken:
+                    update.setdefault("$setOnInsert", {})[stored] = value
         for plugin in self.plugins:
             plugin.on_update(ctx, flt, update)
         return update
@@ -448,13 +631,13 @@ class Manager(t.Generic[T]):
         *,
         session: t.Any = None,
         unscoped: t.Collection[str] | bool = False,
-    ) -> int:
+    ) -> UpdateCount:
         ctx = self.ctx("update", session, many=True)
         flt = self.scoped(ctx, flt, unscoped)
         update = self._update_doc(ctx, flt, ops, fields)
         with self._op("update_many"):
             result = await self.collection.update_many(flt, update, **self._kw(session))
-        return int(result.modified_count)
+        return UpdateCount(int(result.matched_count), int(result.modified_count))
 
     async def delete_many(
         self,
@@ -463,6 +646,7 @@ class Manager(t.Generic[T]):
         session: t.Any = None,
         hard: bool = False,
         unscoped: t.Collection[str] | bool = False,
+        _seen: set[t.Any] | None = None,
     ) -> int:
         ctx = self.ctx("delete", session, many=True)
         flt = self.scoped(ctx, flt, unscoped)
@@ -475,17 +659,27 @@ class Manager(t.Generic[T]):
                 return int((await self.collection.delete_many(flt, **self._kw(session))).deleted_count)
 
         async def run(s: t.Any) -> int:
-            with self._op("delete_many"):
-                ids = await self.collection.distinct("_id", flt, **self._kw(s))
+            seen = _seen if _seen is not None else set()
+            # Documents already being deleted further up a cascade chain are left to that
+            # caller; this is what makes cycles of cascading references terminate.
+            ids = [i for i in await self._ids(flt, s) if (self.meta.collection, _hashable(i)) not in seen]
             if not ids:
                 return 0
-            await self._cascade(ids, s)
-            with self._op("delete_many"):
-                return int(
-                    (await self.collection.delete_many({"_id": {"$in": ids}}, **self._kw(s))).deleted_count
-                )
+            await self._cascade(ids, s, seen)
+            deleted = 0
+            for chunk in _chunks(ids):
+                with self._op("delete_many"):
+                    result = await self.collection.delete_many({"_id": {"$in": chunk}}, **self._kw(s))
+                deleted += int(result.deleted_count)
+            return deleted
 
         return await (self.registry.transaction(run) if session is None else run(session))
+
+    async def _ids(self, flt: dict[str, t.Any], session: t.Any, limit: int = 0) -> list[t.Any]:
+        """Ids of the documents matching an already-scoped filter."""
+        with self._op("ids"):
+            cursor = self.collection.find(flt, {"_id": 1}, limit=limit, **self._kw(session))
+            return [raw["_id"] for raw in await cursor.to_list()]
 
     # -- cascades ----------------------------------------------------------------------
 
@@ -496,12 +690,14 @@ class Manager(t.Generic[T]):
             self._cascades = cascade_rules(self)
         return self._cascades
 
-    async def _cascade(self, ids: list[t.Any], session: t.Any) -> None:
+    async def _cascade(self, ids: list[t.Any], session: t.Any, seen: set[t.Any] | None = None) -> None:
         rules = self._cascade_rules()
         if rules:
             from mongospecs.relations import apply_cascades
 
-            await apply_cascades(self, rules, ids, session)
+            seen = seen if seen is not None else set()
+            seen.update((self.meta.collection, _hashable(i)) for i in ids)
+            await apply_cascades(self, rules, ids, session, seen)
 
     # -- bulk -----------------------------------------------------------------------------
 
@@ -511,23 +707,37 @@ class Manager(t.Generic[T]):
         *,
         ordered: bool = True,
         session: t.Any = None,
+        validate: bool | None = None,
     ) -> BulkResult[T]:
         """Insert documents in one round trip.
 
         With ``ordered=False`` the server attempts every document; failures are
-        reported in ``BulkResult.errors`` instead of raising.
+        reported in ``BulkResult.errors`` instead of raising. Document hooks for
+        ``insert`` and ``save`` run for every document, as they do for ``insert()``:
+        the ``before`` hooks ahead of the write, the ``after`` hooks for what was written.
         """
-        items: list[t.Any] = [self.meta.decode(dict(d)) if isinstance(d, t.Mapping) else d for d in docs]
+        given = list(docs)
+        items: list[t.Any] = [
+            self.meta.decode(dict(d), stored=False) if isinstance(d, t.Mapping) else d for d in given
+        ]
         if not items:
             return BulkResult([], [])
+        # a mapping has just been validated by being decoded; an instance has not been
+        unchecked = [not isinstance(d, t.Mapping) for d in given]
         ctx = self.ctx("insert", session, many=True)
+        hooks = self._has_hooks("insert", "save")
+        if hooks:
+            for doc in items:
+                await self._hooks("before", ("insert", "save"), ctx, doc)
         for plugin in self.plugins:
             await plugin.before_bulk(ctx, items)
         encoded: list[dict[str, t.Any]] = []
-        for doc in items:
+        for doc, instance in zip(items, unchecked, strict=True):
+            enc = self.meta.encode(doc)
+            if (instance or hooks) and self._validated(doc, validate):
+                self._check(doc, enc)
             if isinstance(session, Tx):
                 session.record(doc, self.managed_attrs)
-            enc = self.meta.encode(doc)
             if enc.get("_id") is None:
                 enc.pop("_id", None)
             for plugin in self.plugins:
@@ -553,78 +763,138 @@ class Manager(t.Generic[T]):
             inserted.append(doc)
         for plugin in self.plugins:
             await plugin.after_bulk(ctx, inserted)
+        if hooks:
+            for doc in inserted:
+                await self._hooks("after", ("insert", "save"), ctx, doc)
         return BulkResult(inserted, sorted(failed.items()))
 
     async def bulk_write(
         self, operations: t.Iterable[t.Any], *, ordered: bool = True, session: t.Any = None
     ) -> t.Any:
-        """Run typed bulk operations (see :mod:`mongospecs.bulk`) in one round trip."""
+        """Run typed bulk operations (see :mod:`mongospecs.bulk`) in one round trip.
+
+        Hard deletes on a model with ``OnDelete`` rules run their cascades first, in the
+        same transaction, exactly as single deletes do.
+        """
+        import pymongo
+
         from mongospecs.bulk import compile_bulk
 
         ops = list(operations)
         ctx = self.ctx("bulk", session, many=True)
         for plugin in self.plugins:
             await plugin.before_bulk(ctx, ops)
-        requests = compile_bulk(self, ctx, ops)
+        requests, deletes = compile_bulk(self, ctx, ops)
         if not requests:
             return None
-        with self._op("bulk_write"):
-            result = await self.collection.bulk_write(requests, ordered=ordered, **self._kw(session))
+
+        async def run(s: t.Any) -> t.Any:
+            seen: set[t.Any] = set()
+            for index, (flt, many) in deletes.items():
+                # Resolve the documents first so the cascade and the delete act on the same ones.
+                ids = await self._ids(flt, s, limit=0 if many else 1)
+                await self._cascade(ids, s, seen)
+                requests[index] = pymongo.DeleteMany({"_id": {"$in": ids}})
+            with self._op("bulk_write"):
+                return await self.collection.bulk_write(requests, ordered=ordered, **self._kw(s))
+
+        if deletes and self._cascade_rules():
+            result = await (self.registry.transaction(run) if session is None else run(session))
+        else:
+            deletes = {}
+            result = await run(session)
         for plugin in self.plugins:
             await plugin.after_bulk(ctx, ops)
         return result
 
-    async def bulk_save(self, docs: t.Iterable[T], *, session: t.Any = None) -> int:
+    async def bulk_save(
+        self, docs: t.Iterable[T], *, session: t.Any = None, validate: bool | None = None
+    ) -> int:
         """Save many documents in one round trip: inserts for new ones, deltas for tracked ones.
 
-        Returns the number of documents written. Raises :class:`StaleDocumentError`
-        if any revision-checked update matched nothing (the batch does not say which).
+        Returns the number of documents written. Writes are independent: if some
+        fail (a duplicate key, a document that no longer exists, a revision that
+        moved on), the rest are still written and brought in sync in memory, and
+        the error raised afterwards lists the ones that were not in ``.failed``.
+
+        Document hooks run as they do for ``save()``: ``insert`` and ``save`` for new
+        documents, ``save`` for tracked ones; the ``after`` hooks only for what was written.
         """
         from pymongo import InsertOne
         from pymongo import UpdateOne as DriverUpdateOne
 
         requests: list[t.Any] = []
+        # (document, kind, ctx, encoding after the write, prior state, the update that was sent)
         pending: list[
-            tuple[t.Any, str, OpCtx, dict[str, t.Any], tracking.DocState | None, frozenset[str]]
+            tuple[t.Any, str, OpCtx, dict[str, t.Any], tracking.DocState | None, dict[str, t.Any]]
         ] = []
+        hooks = self._has_hooks("insert", "save")
         for doc in docs:
             state = tracking.state_of(doc)
             if state is None:
                 ctx = self.ctx("insert", session, many=True, doc=doc)
+                if hooks:
+                    await self._hooks("before", ("insert", "save"), ctx, doc)
                 enc = self.meta.encode(doc)
+                if self._validated(doc, validate):
+                    self._check(doc, enc)
                 if enc.get("_id") is None:
                     enc.pop("_id", None)
                 for plugin in self.plugins:
                     plugin.on_insert(ctx, enc)
                 requests.append(InsertOne(enc))
-                pending.append((doc, "insert", ctx, enc, None, frozenset()))
+                pending.append((doc, "insert", ctx, enc, None, {}))
                 continue
             ctx = self.ctx("update", session, many=True, doc=doc, snapshot=state.snapshot)
+            if hooks:
+                await self._hooks("before", ("save",), ctx, doc)
             current, update = self._delta(doc, state)
             if not update:
                 continue
             flt: dict[str, t.Any] = {"_id": state.snapshot["_id"], **self._shard_filter(state.snapshot)}
             user_keys = _touched(update)
+            if self._validated(doc, validate):
+                self._check(doc, current, _heads(user_keys) if state.partial is not None else None)
             for plugin in self.plugins:
                 plugin.on_update(ctx, flt, update)
             requests.append(DriverUpdateOne(flt, update))
             _patch(current, update, skip=user_keys)
-            pending.append((doc, "update", ctx, current, state, user_keys))
+            pending.append((doc, "update", ctx, current, state, update))
         if not requests:
             return 0
         bulk_ctx = self.ctx("bulk", session, many=True)
         all_docs = [p[0] for p in pending]
         for plugin in self.plugins:
             await plugin.before_bulk(bulk_ctx, all_docs)
-        with self._op("bulk_save"):
-            result = await self.collection.bulk_write(requests, ordered=False, **self._kw(session))
-        updates = sum(1 for p in pending if p[1] == "update")
-        if result.matched_count != updates:
-            raise StaleDocumentError(
-                f"{self.model.__name__}: {updates - result.matched_count} of {updates} documents in the batch "
-                "no longer exist or were changed since they were loaded"
-            )
-        for doc, kind, ctx, enc, state, _ in pending:
+
+        failed: set[int] = set()
+        error: MongoSpecsError | None = None
+        try:
+            with self._op("bulk_save"):
+                result = await self.collection.bulk_write(requests, ordered=False, **self._kw(session))
+            matched = int(result.matched_count)
+        except OperationFailed as exc:
+            details = exc.details if isinstance(exc.details, dict) else {}
+            write_errors = details.get("writeErrors")
+            if not write_errors:
+                raise
+            failed = {int(e["index"]) for e in write_errors}
+            matched = int(details.get("nMatched", 0))
+            error = exc
+        updates = [i for i, p in enumerate(pending) if p[1] == "update" and i not in failed]
+        if matched != len(updates):
+            # The server only reports a total. Read back what each update should have left behind.
+            unmatched = await self._unmatched(pending, updates, session)
+            failed |= unmatched
+            if error is None:
+                error = StaleDocumentError(
+                    f"{self.model.__name__}: {len(unmatched)} of {len(updates)} documents in the batch "
+                    "no longer exist or were changed since they were loaded"
+                )
+        written = 0
+        for index, (doc, kind, ctx, enc, state, _) in enumerate(pending):
+            if index in failed:
+                continue
             if isinstance(session, Tx):
                 session.record(doc, self.managed_attrs)
             if kind == "insert":
@@ -632,9 +902,46 @@ class Manager(t.Generic[T]):
             for plugin in self.plugins:
                 plugin.applied(ctx, doc, enc)
             tracking.track(doc, enc, state.manager if state else self, state.partial if state else None)
+            written += 1
         for plugin in self.plugins:
-            await plugin.after_bulk(bulk_ctx, all_docs)
-        return len(pending)
+            await plugin.after_bulk(bulk_ctx, [p[0] for i, p in enumerate(pending) if i not in failed])
+        if hooks:
+            for index, (doc, kind, ctx, *_rest) in enumerate(pending):
+                if index not in failed:
+                    await self._hooks(
+                        "after", ("insert", "save") if kind == "insert" else ("save",), ctx, doc
+                    )
+        if error is not None:
+            error.failed = [pending[i][0] for i in sorted(failed)]
+            raise error
+        return written
+
+    async def _unmatched(self, pending: list[t.Any], updates: list[int], session: t.Any) -> set[int]:
+        """Which of the batch's updates did not apply.
+
+        The server reports only a total, so the documents are read back and compared with
+        what each update would have left: the values it sets, the fields it removes and the
+        counters it increments (the revision among them).
+        """
+        found: dict[t.Any, dict[str, t.Any]] = {}
+        for chunk in _chunks([pending[i][3]["_id"] for i in updates]):
+            with self._op("bulk_save"):
+                cursor = self.collection.find({"_id": {"$in": chunk}}, **self._kw(session))
+                for raw in await cursor.to_list():
+                    found[_hashable(raw["_id"])] = raw
+        out: set[int] = set()
+        for i in updates:
+            enc, update = pending[i][3], pending[i][5]
+            stored = found.get(_hashable(enc["_id"]))
+            applied = (
+                stored is not None
+                and all(_dig(stored, path) == value for path, value in update.get("$set", {}).items())
+                and all(_dig(stored, path, _MISSING) is _MISSING for path in update.get("$unset", {}))
+                and all(stored.get(key) == enc.get(key) for key in update.get("$inc", {}))
+            )
+            if not applied:
+                out.add(i)
+        return out
 
     # -- escape hatches ---------------------------------------------------------------------
 
@@ -716,16 +1023,16 @@ class Aggregate(t.Generic[T]):
         decode = self._decoder()
         with manager._op("aggregate"):
             cursor = await manager.collection.aggregate(
-                self.compiled(), **manager._read_kw(self._session, self._options)
+                self.compiled(), **manager._agg_kw(self._session, self._options)
             )
         async with cursor:
             while True:
                 with manager._op("aggregate"):
-                    try:
-                        raw = await cursor.__anext__()
-                    except StopAsyncIteration:
-                        return
-                yield decode(raw)
+                    batch = await cursor.to_list(1000)
+                for raw in batch:
+                    yield decode(raw)
+                if len(batch) < 1000:
+                    return
 
     async def all(self) -> list[T]:
         return [item async for item in self]
@@ -736,6 +1043,11 @@ class Aggregate(t.Generic[T]):
 
 def _touched(update: t.Mapping[str, t.Any]) -> frozenset[str]:
     return frozenset(k for body in update.values() for k in body)
+
+
+def _heads(paths: t.Iterable[str]) -> set[str]:
+    """The top-level stored keys that dotted update paths write under."""
+    return {path.partition(".")[0] for path in paths}
 
 
 def _patch(doc: dict[str, t.Any], update: t.Mapping[str, t.Any], *, skip: frozenset[str]) -> None:
@@ -759,3 +1071,44 @@ def _write_error(error: t.Mapping[str, t.Any]) -> Exception:
             fields=dict(fields) if isinstance(fields, dict) else None,
         )
     return OperationFailed(message, code=error.get("code"), details=dict(error))
+
+
+def _filter_keys(flt: t.Any) -> set[str]:
+    """Top-level field names a filter mentions, looking through $and/$or/$nor."""
+    keys: set[str] = set()
+    if isinstance(flt, dict):
+        for key, value in flt.items():
+            if key in ("$and", "$or", "$nor") and isinstance(value, list):
+                for part in value:
+                    keys |= _filter_keys(part)
+            elif not key.startswith("$"):
+                keys.add(key.partition(".")[0])
+    return keys
+
+
+_CHUNK_IDS = 5000
+
+
+def _chunks(ids: list[t.Any]) -> t.Iterator[list[t.Any]]:
+    """Ids in pieces small enough for one ``$in`` each."""
+    for start in range(0, len(ids), _CHUNK_IDS):
+        yield ids[start : start + _CHUNK_IDS]
+
+
+def _hashable(value: t.Any) -> t.Any:
+    try:
+        hash(value)
+    except TypeError:
+        return repr(value)
+    return value
+
+
+_MISSING: t.Any = object()
+
+
+def _dig(doc: t.Any, path: str, default: t.Any = None) -> t.Any:
+    for part in path.split("."):
+        if not isinstance(doc, dict) or part not in doc:
+            return default
+        doc = doc[part]
+    return doc

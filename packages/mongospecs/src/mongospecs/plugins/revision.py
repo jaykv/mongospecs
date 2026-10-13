@@ -48,7 +48,9 @@ class Revisions(Plugin):
         update.setdefault("$inc", {})[stored] = 1
         snapshot = ctx.extra.get("snapshot")
         if snapshot is not None:
-            flt[stored] = snapshot.get(stored)
+            loaded = snapshot.get(stored)
+            # A document written before the model had a revision field has none stored.
+            flt[stored] = {"$in": [0, None]} if not loaded else loaded
         elif ctx.extra.get("if_rev") is not None:
             flt[stored] = ctx.extra["if_rev"]
 

@@ -1,0 +1,94 @@
+[project]
+site_name = "mongospecs"
+site_url = "https://jaykv.github.io/mongospecs/"
+repo_url = "https://github.com/jaykv/mongospecs"
+edit_uri = "edit/main/docs/"
+
+nav = [
+  { "Home" = "index.md" },
+  { "Getting started" = "tutorial.md" },
+  { "Guide" = [
+    { "Models" = "guide/models.md" },
+    { "Choosing a backend" = "guide/backends.md" },
+    { "Queries" = "guide/queries.md" },
+    { "Writes and transactions" = "guide/writes.md" },
+    { "Relations" = "guide/relations.md" },
+    { "Hooks and plugins" = "guide/plugins.md" },
+    { "Errors" = "guide/errors.md" },
+    { "Running in production" = "guide/operations.md" },
+    { "Tuning for production" = "guide/production.md" },
+  ] },
+  { "Web" = [
+    { "Resources" = "web/resources.md" },
+    { "Authentication and authorization" = "web/auth.md" },
+    { "Testing your API" = "web/testing.md" },
+    { "Plugs" = "web/plugs.md" },
+  ] },
+  { "Benchmarks" = "benchmarks.md" },
+  { "Coming from Mongoose" = "parity.md" },
+  { "Migrating from 0.1.x" = [
+    { "Guide" = "migration.md" },
+    { "v1 test inventory" = "v1-test-inventory.md" },
+  ] },
+]
+
+[project.theme]
+language = "en"
+features = [
+  "announce.dismiss",
+  "content.action.edit",
+  "content.action.view",
+  "content.code.annotate",
+  "content.code.copy",
+  "content.code.select",
+  "content.footnote.tooltips",
+  "content.tabs.link",
+  "content.tooltips",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.instant.prefetch",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.tabs",
+  "navigation.tabs.sticky",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+  "toc.follow",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Switch to light mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to system preference"
+
+[project.markdown_extensions]
+abbr = {}
+admonition = {}
+attr_list = {}
+footnotes = {}
+md_in_html = {}
+toc.permalink = true
+pymdownx.details = {}
+pymdownx.emoji.emoji_generator = "zensical.extensions.emoji.to_svg"
+pymdownx.emoji.emoji_index = "zensical.extensions.emoji.twemoji"
+pymdownx.magiclink = {}
+pymdownx.snippets.base_path = ["."]
+pymdownx.snippets.check_paths = true
+pymdownx.superfences = {}
+pymdownx.tabbed.alternate_style = true
+pymdownx.tabbed.combine_header_slug = true
+pymdownx.tasklist.custom_checkbox = true

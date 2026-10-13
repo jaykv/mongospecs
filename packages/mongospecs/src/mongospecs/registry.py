@@ -30,6 +30,7 @@ from mongospecs.errors import (
     MongoSpecsError,
     NotBoundError,
     RegistryClosedError,
+    TransactionError,
     translate,
     wrap_errors,
 )
@@ -55,6 +56,9 @@ __all__ = [
 R = t.TypeVar("R")
 
 _BINDINGS: weakref.WeakKeyDictionary[type, Registry] = weakref.WeakKeyDictionary()
+_IN_TRANSACTION: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "mongospecs_in_transaction", default=False
+)
 _CURRENT_OP: contextvars.ContextVar[tuple[str, str] | None] = contextvars.ContextVar(
     "mongospecs_current_op", default=None
 )
@@ -471,19 +475,35 @@ class Registry:
         write_concern: t.Any = None,
         read_preference: t.Any = None,
         max_commit_time_ms: int | None = None,
+        independent: bool = False,
     ) -> R:
         """Run ``fn(tx)`` in a transaction and commit it.
+
+        Transactions do not nest. MongoDB has no savepoints, and a transaction
+        started while another one is running is a separate transaction: it commits
+        on its own and stays committed if the outer one aborts. Calling this from
+        inside another ``transaction()`` therefore raises
+        :class:`TransactionError`; pass the outer ``tx`` down and use it instead.
+        If a separate, independently committed transaction is what you want (an
+        audit record that must survive a rollback), say so with ``independent=True``.
 
         ``fn`` may be called more than once: the driver re-runs it on transient
         transaction errors. Before every re-run, and if the transaction finally
         aborts, documents written inside it are restored to their prior
         in-memory state. Pass ``session=tx`` to every operation inside ``fn``.
         """
+        if _IN_TRANSACTION.get() and not independent:
+            raise TransactionError(
+                "transaction() was called inside another transaction. Transactions do not nest: this one "
+                "would commit on its own even if the outer one aborts. Pass the outer tx to the code that "
+                "needs it, or use transaction(fn, independent=True) if a separate commit is intended."
+            )
         async with self.client.start_session() as session:
             tx = Tx(session, self)
 
             async def attempt(_: t.Any) -> R:
                 tx.rollback_memory()
+                token = _IN_TRANSACTION.set(True)  # for detection only; sessions are always passed explicitly
                 try:
                     return await fn(tx)
                 except MongoSpecsError as exc:
@@ -494,6 +514,8 @@ class Registry:
                     ):
                         raise cause from None
                     raise
+                finally:
+                    _IN_TRANSACTION.reset(token)
 
             try:
                 result = await session.with_transaction(

@@ -1,0 +1,48 @@
+{
+  "meta": {
+    "git_sha": "6dc837f",
+    "git_dirty": true,
+    "timestamp": "2026-10-13T04:59:26+00:00",
+    "topology": "rs",
+    "quick": false,
+    "mongodb": "8.0.32",
+    "python": "3.13.5",
+    "free_threaded": false,
+    "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "cpus": 8,
+    "versions": {
+      "mongospecs": "0.2.0",
+      "pymongo": "4.18.3",
+      "msgspec": "0.22.0",
+      "pydantic": "2.14.1"
+    }
+  },
+  "workload": "X1",
+  "title": "Many tasks, small pool",
+  "question": "Do thousands of concurrent tasks finish on a pool of 5, and do pool waits surface as typed errors?",
+  "rows": [
+    {
+      "check": "tasks completed",
+      "value": 3000
+    },
+    {
+      "check": "documents written",
+      "value": 3000
+    },
+    {
+      "check": "pool waits raised as PoolTimeout",
+      "value": 5
+    },
+    {
+      "check": "untyped errors",
+      "value": 0
+    },
+    {
+      "check": "verdict",
+      "value": "pass"
+    }
+  ],
+  "notes": [],
+  "conclusion": "PASS: 3000 tasks completed on 5 connections; starved pool raised PoolTimeout 5 times"
+}

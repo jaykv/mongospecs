@@ -140,6 +140,12 @@ async def test_default_max_time_ms_from_registry_and_model(m, make_registry):
     assert [c["maxTimeMS"] for c in finds] == [1234, 99]
     counts = [e.command for e in events if e.phase == "started" and e.command_name == "aggregate"]
     assert counts[0]["maxTimeMS"] == 1234
+    # every path that runs a pipeline carries the default too (found by the storefront e2e tests)
+    events.clear()
+    await m.User.aggregate([{"$match": {}}])
+    await m.User.find().union(m.User.find())
+    pipelines = [e.command for e in events if e.phase == "started" and e.command_name == "aggregate"]
+    assert len(pipelines) >= 2 and all(c["maxTimeMS"] == 1234 for c in pipelines)
 
 
 async def test_command_events_carry_model_and_operation(m, make_registry, caplog):
@@ -230,7 +236,8 @@ async def test_sentry_listener_records_spans_in_the_active_transaction(m, make_r
         await m.User.count()  # outside any transaction: nothing to attach to, nothing sent
         sentry_sdk.flush()
     finally:
-        sentry_sdk.init()  # switch the SDK off again
+        # Switch the SDK off again, without letting it auto-enable framework integrations.
+        sentry_sdk.init(dsn=None, default_integrations=False, auto_enabling_integrations=False)
     (event,) = captured
     spans = event["spans"]
     assert [s["description"] for s in spans] == ["User.insert", "User.find", "User.aggregate"]

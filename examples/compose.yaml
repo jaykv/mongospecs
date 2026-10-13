@@ -1,0 +1,25 @@
+# MongoDB for the examples: a single-node replica set on localhost:27017.
+# Transactions and change streams need a replica set; one node is enough.
+#   docker compose -f examples/compose.yaml up -d --wait
+name: mongospecs-examples
+services:
+  mongo:
+    image: mongo:8.0
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - data:/data/db
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          mongosh --quiet --eval
+          "try { if (!db.hello().isWritablePrimary) throw 1 } catch (e) {
+          try { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'localhost:27017'}]}) } catch (e2) {}
+          quit(1) }"
+      interval: 2s
+      timeout: 10s
+      retries: 60
+volumes:
+  data:

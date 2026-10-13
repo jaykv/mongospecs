@@ -1,0 +1,40 @@
+{
+  "meta": {
+    "git_sha": "6dc837f",
+    "git_dirty": true,
+    "timestamp": "2026-10-13T04:59:26+00:00",
+    "topology": "rs",
+    "quick": false,
+    "mongodb": "8.0.32",
+    "python": "3.13.5",
+    "free_threaded": false,
+    "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "cpus": 8,
+    "versions": {
+      "mongospecs": "0.2.0",
+      "pymongo": "4.18.3",
+      "msgspec": "0.22.0",
+      "pydantic": "2.14.1"
+    }
+  },
+  "workload": "X5",
+  "title": "Result documents near 16MB",
+  "question": "What happens when a $lookup would build a document over the BSON limit?",
+  "rows": [
+    {
+      "check": "$lookup outcome",
+      "value": "DocumentTooLarge"
+    },
+    {
+      "check": "batch strategy loaded children",
+      "value": 18
+    },
+    {
+      "check": "verdict",
+      "value": "pass"
+    }
+  ],
+  "notes": [],
+  "conclusion": "PASS: $lookup over the limit -> DocumentTooLarge; batch strategy loaded all 18 children"
+}

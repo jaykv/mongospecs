@@ -188,3 +188,40 @@ async def test_cancellation_leaves_no_session_behind(m, registry):
     assert await m.User.count() == 0
     assert await m.User.find(Q.name == "x").exists() is False
     await m.User(name="after").insert()  # the client is still usable
+
+
+async def test_freshly_loaded_documents_report_no_changes(m, registry):
+    """The snapshot is the raw stored form; loading must not look like editing, whatever the types."""
+    user = await m.User(name="ann", age=3, color=m.Color.BLUE, address=m.Address(city="Oslo")).insert()
+    article = await m.Article(
+        title="t", author=user, editors=[user], reviewers={"a": user}, tags=["x"]
+    ).insert()
+    # documents written by other code: an int where the model has a float-like default, missing optionals
+    await m.User.collection().insert_one({"name": "sparse"})
+    await m.Video.collection().insert_one({"title": "v", "seconds": 60.0})
+    for model in (m.User, m.Article, m.Video):
+        for doc in await model.find():
+            assert doc.changes() == {}, (model.__name__, doc.changes())
+            assert not doc.is_new
+    loaded = await m.Article.get(article.id)
+    loaded.tags.append("y")
+    assert loaded.changes() == {"$set": {"tags": ["x", "y"]}}
+    sparse = await m.User.find(Q.name == "sparse").one()
+    sparse.age = 7
+    await sparse.save()
+    assert await m.User.collection().find_one({"name": "sparse"}, {"_id": 0}) == {"name": "sparse", "age": 7}
+
+
+async def test_documents_written_before_a_field_existed(m, registry):
+    await m.User.collection().insert_one({"name": "old shape"})
+    await m.Article.collection().insert_one({"title": "no revision yet"})
+    doc = await m.User.find(Q.name == "old shape").one()
+    assert doc.changes() == {} and doc.age == 0  # the default is applied in memory, not written
+    doc.name = "renamed"
+    await doc.save()
+    assert await m.User.collection().find_one({"name": "renamed"}, {"_id": 0}) == {"name": "renamed"}
+    # a stored document without the revision field can still be saved, and gets one
+    article = await m.Article.find().one()
+    article.title = "now revisioned"
+    await article.save()
+    assert article.rev == 1 and (await m.Article.collection().find_one({}))["rev"] == 1

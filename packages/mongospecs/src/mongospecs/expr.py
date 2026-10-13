@@ -109,6 +109,16 @@ class SortKey:
     direction: int
 
 
+def _text(value: t.Any, name: str) -> str:
+    if not isinstance(value, str):
+        raise QueryError(f"{name}() matches literal text and needs a str, got {type(value).__name__}")
+    return value
+
+
+def _flags(ignore_case: bool) -> str:
+    return "i" if ignore_case else ""
+
+
 def _values(values: t.Any, name: str) -> list[t.Any]:
     if isinstance(values, str | bytes | t.Mapping) or not isinstance(values, t.Iterable):
         raise QueryError(f"{name}() needs a list of values, got {type(values).__name__}")
@@ -175,11 +185,11 @@ class Field:
 
     def prefix(self, value: str, *, ignore_case: bool = False) -> Condition:
         """Literal starts-with match (the value is escaped)."""
-        return Condition(self._path, "$regex", ("^" + re.escape(value), "i" if ignore_case else ""))
+        return Condition(self._path, "$regex", ("^" + re.escape(_text(value, "prefix")), _flags(ignore_case)))
 
     def contains(self, value: str, *, ignore_case: bool = False) -> Condition:
         """Literal substring match (the value is escaped)."""
-        return Condition(self._path, "$regex", (re.escape(value), "i" if ignore_case else ""))
+        return Condition(self._path, "$regex", (re.escape(_text(value, "contains")), _flags(ignore_case)))
 
     def regex(self, pattern: str, options: str = "") -> Condition:
         """Regular-expression match. The pattern is used as written; do not pass user input."""
@@ -274,10 +284,14 @@ def And(*conditions: Expr | t.Mapping[str, t.Any]) -> Group:
 
 
 def Or(*conditions: Expr | t.Mapping[str, t.Any]) -> Group:
+    if not conditions:
+        raise QueryError("Or() needs at least one condition")
     return Group("$or", conditions)
 
 
 def Nor(*conditions: Expr | t.Mapping[str, t.Any]) -> Group:
+    if not conditions:
+        raise QueryError("Nor() needs at least one condition")
     return Group("$nor", conditions)
 
 
@@ -441,5 +455,9 @@ def and_filters(*filters: t.Mapping[str, t.Any] | None) -> dict[str, t.Any]:
 def compile_sort(keys: t.Iterable[SortInput], meta: ModelMeta | None = None) -> list[tuple[str, int]]:
     out: list[tuple[str, int]] = []
     for key in SortBy(*keys):
+        if not isinstance(key.path, str) or any(
+            not part or part.startswith("$") for part in key.path.split(".")
+        ):
+            raise QueryError(f"cannot sort by {key.path!r}: not a field path")
         out.append((meta.stored_path(key.path) if meta is not None else key.path, key.direction))
     return out

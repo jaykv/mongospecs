@@ -168,3 +168,42 @@ def test_unresolvable_names_are_reported():
     with pytest.raises(ConfigurationError, match="DoesNotExist"):
         meta_of(Orphan).ref_targets("other")
     assert ObjectId.is_valid(str(ObjectId()))
+
+
+def test_stale_class_copies_are_not_counted_as_subclasses():
+    """attrs replaces a class with a slotted copy; the original must not show up as a second subclass."""
+    import gc
+
+    import attrs
+
+    from mongospecs.attrs import Spec as AttrsSpec
+    from mongospecs.meta import _all_subclasses
+
+    @attrs.define(kw_only=True)
+    class Vehicle(AttrsSpec):
+        __spec__ = SpecConfig(collection="vehicles", discriminator="kind")
+        wheels: int = 4
+
+    gc.disable()  # keep the pre-slots originals alive, as a free-threaded build may
+    try:
+
+        @attrs.define(kw_only=True)
+        class Truck(Vehicle):
+            __spec__ = SpecConfig(discriminator_value="lorry")
+            load: int = 0
+
+        @attrs.define(kw_only=True)
+        class Pickup(Truck):
+            bed: int = 0
+
+        assert [c.__name__ for c in _all_subclasses(Vehicle)] == ["Truck", "Pickup"]
+        assert all(
+            attrs.has(c) and "load" in [a.name for a in attrs.fields(c)] for c in _all_subclasses(Vehicle)
+        )
+        assert meta_of(Truck).discriminator_filter() == {"kind": {"$in": ["lorry", "Pickup"]}}
+        assert (
+            meta_of(Vehicle).subclass_for("lorry") is Truck
+            and meta_of(Vehicle).subclass_for("Pickup") is Pickup
+        )
+    finally:
+        gc.enable()

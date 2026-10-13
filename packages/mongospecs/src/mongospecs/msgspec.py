@@ -11,6 +11,7 @@ from bson import ObjectId
 
 from mongospecs.codec import Codec, RawField, field_error, to_bson
 from mongospecs.errors import ValidationError
+from mongospecs.jsonable import json_default
 from mongospecs.markers import SpecConfig
 from mongospecs.model import Document
 from mongospecs.refs import OID, OID_PATTERN, Ref, _to_object_id, coerce_ref
@@ -18,6 +19,7 @@ from mongospecs.refs import OID, OID_PATTERN, Ref, _to_object_id, coerce_ref
 __all__ = ["CODEC", "MsgspecCodec", "Spec", "SpecAdapter"]
 
 _PATH = re.compile(r" - at `\$\.([^`.\[]+)")
+_MISSING = re.compile(r"missing required field `([^`]+)`")
 
 
 def dec_hook(tp: t.Any, obj: t.Any) -> t.Any:
@@ -41,7 +43,7 @@ def schema_hook(tp: t.Any) -> dict[str, t.Any]:
 
 def _error(cls: type, exc: Exception, name: str | None = None) -> ValidationError:
     message = str(exc)
-    match = _PATH.search(message)
+    match = _PATH.search(message) or _MISSING.search(message)
     field = name or (match.group(1) if match else None)
     return field_error(cls, field, _PATH.sub("", message) if name else message)
 
@@ -61,11 +63,9 @@ class MsgspecCodec(Codec):
     def raw_fields(self, cls: type) -> list[RawField]:
         return [(f.name, f.encode_name, f.type, f.required) for f in msgspec.structs.fields(cls)]
 
-    def _decode(self, cls: type, doc: dict[str, t.Any], trusted: bool) -> t.Any:
-        # msgspec has no unvalidated construction path; conversion is cheap, so
-        # ``trusted`` changes nothing here.
+    def _decode(self, cls: type, doc: dict[str, t.Any], lax: bool) -> t.Any:
         try:
-            return msgspec.convert(doc, cls, dec_hook=dec_hook)
+            return msgspec.convert(doc, cls, dec_hook=dec_hook, strict=not lax)
         except (msgspec.ValidationError, ValueError) as exc:
             raise _error(cls, exc) from exc
 
@@ -81,6 +81,33 @@ class MsgspecCodec(Codec):
 
     def _json_schema(self, cls: type) -> dict[str, t.Any]:
         return msgspec.json.schema(cls, schema_hook=schema_hook)
+
+    def to_json(self, obj: t.Any) -> dict[str, t.Any]:
+        data: dict[str, t.Any] = msgspec.to_builtins(obj, enc_hook=json_default)
+        renames = self._json_renames(type(obj))
+        for stored, name in renames:
+            if stored in data:
+                data[name] = data.pop(stored)
+        return data
+
+    def _json_renames(self, cls: type) -> tuple[tuple[str, str], ...]:
+        cache: dict[type, tuple[tuple[str, str], ...]] = self.__dict__.setdefault("_jr", {})
+        hit = cache.get(cls)
+        if hit is None:
+            hit = tuple(
+                (f.encode_name, f.name) for f in msgspec.structs.fields(cls) if f.encode_name != f.name
+            )
+            cache[cls] = hit
+        return hit
+
+    def defaults(self, cls: type) -> dict[str, t.Any]:
+        out: dict[str, t.Any] = {}
+        for f in msgspec.structs.fields(cls):
+            if f.default is not msgspec.NODEFAULT:
+                out[f.name] = f.default
+            elif f.default_factory is not msgspec.NODEFAULT:
+                out[f.name] = f.default_factory()
+        return out
 
 
 CODEC = MsgspecCodec()

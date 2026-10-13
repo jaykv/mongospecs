@@ -47,7 +47,7 @@ from mongospecs.expr import (
 )
 from mongospecs.hooks import OpCtx, Plugin
 from mongospecs.indexes import Action, IndexAction, IndexPlan, apply_indexes, plan_indexes
-from mongospecs.manager import BulkResult, Manager
+from mongospecs.manager import BulkResult, Manager, UpdateCount
 from mongospecs.markers import (
     Alias,
     Backref,
@@ -56,10 +56,12 @@ from mongospecs.markers import (
     DeletedAt,
     Immutable,
     Index,
+    OmitNone,
     OnDelete,
     Policy,
     Revision,
     SpecConfig,
+    StoreNone,
     To,
     UpdatedAt,
     computed,
@@ -139,6 +141,7 @@ __all__ = [
     "NotBoundError",
     "NotIn",
     "NotLoadedError",
+    "OmitNone",
     "OnDelete",
     "OpCtx",
     "OperationFailed",
@@ -164,11 +167,13 @@ __all__ = [
     "SortBy",
     "SpecConfig",
     "StaleDocumentError",
+    "StoreNone",
     "To",
     "TransactionError",
     "Tx",
     "Type",
     "Unset",
+    "UpdateCount",
     "UpdateMany",
     "UpdateOne",
     "UpdatedAt",

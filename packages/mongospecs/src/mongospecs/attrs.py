@@ -14,6 +14,7 @@ import msgspec
 
 from mongospecs.codec import Codec, RawField, field_error, to_bson
 from mongospecs.errors import ValidationError
+from mongospecs.jsonable import json_default
 from mongospecs.markers import SpecConfig
 from mongospecs.model import Document
 from mongospecs.msgspec import _error, dec_hook, schema_hook
@@ -36,9 +37,9 @@ class AttrsCodec(Codec):
             for a in attrs.fields(cls)
         ]
 
-    def _decode(self, cls: type, doc: dict[str, t.Any], trusted: bool) -> t.Any:
+    def _decode(self, cls: type, doc: dict[str, t.Any], lax: bool) -> t.Any:
         try:
-            return msgspec.convert(doc, cls, dec_hook=dec_hook)
+            return msgspec.convert(doc, cls, dec_hook=dec_hook, strict=not lax)
         except (msgspec.ValidationError, ValueError) as exc:
             raise _error(cls, exc) from exc
 
@@ -63,6 +64,22 @@ class AttrsCodec(Codec):
 
     def _json_schema(self, cls: type) -> dict[str, t.Any]:
         return msgspec.json.schema(cls, schema_hook=schema_hook)
+
+    def to_json(self, obj: t.Any) -> dict[str, t.Any]:
+        return t.cast("dict[str, t.Any]", msgspec.to_builtins(obj, enc_hook=json_default))
+
+    def defaults(self, cls: type) -> dict[str, t.Any]:
+        out: dict[str, t.Any] = {}
+        for a in attrs.fields(cls):
+            if a.default is attrs.NOTHING:
+                continue
+            default = a.default
+            if isinstance(default, attrs.Factory):  # type: ignore[arg-type]
+                if default.takes_self:
+                    continue  # depends on the instance; nothing to write without one
+                default = default.factory()
+            out[a.name] = default
+        return out
 
 
 CODEC = AttrsCodec()

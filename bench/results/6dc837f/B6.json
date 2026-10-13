@@ -1,0 +1,90 @@
+{
+  "meta": {
+    "git_sha": "6dc837f",
+    "git_dirty": false,
+    "timestamp": "2026-10-13T04:45:53+00:00",
+    "topology": "rs",
+    "quick": false,
+    "mongodb": "8.0.32",
+    "python": "3.13.5",
+    "free_threaded": false,
+    "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "cpus": 8,
+    "versions": {
+      "mongospecs": "0.2.0",
+      "pymongo": "4.18.3",
+      "msgspec": "0.22.0",
+      "pydantic": "2.14.1"
+    }
+  },
+  "workload": "B6",
+  "title": "Plugin overhead",
+  "question": "What does each active plugin cost per operation?",
+  "rows": [
+    {
+      "plugins": "0 no-op",
+      "op": "insert",
+      "us_per_op": 2494.2,
+      "vs_no_plugins": 1.0
+    },
+    {
+      "plugins": "0 no-op",
+      "op": "save",
+      "us_per_op": 3044.1,
+      "vs_no_plugins": 1.0
+    },
+    {
+      "plugins": "0 no-op",
+      "op": "get",
+      "us_per_op": 422.3,
+      "vs_no_plugins": 1.0
+    },
+    {
+      "plugins": "3 no-op",
+      "op": "insert",
+      "us_per_op": 2935.7,
+      "vs_no_plugins": 1.18
+    },
+    {
+      "plugins": "3 no-op",
+      "op": "save",
+      "us_per_op": 3666.9,
+      "vs_no_plugins": 1.2
+    },
+    {
+      "plugins": "3 no-op",
+      "op": "get",
+      "us_per_op": 427.9,
+      "vs_no_plugins": 1.01
+    },
+    {
+      "plugins": "10 no-op",
+      "op": "insert",
+      "us_per_op": 2348.5,
+      "vs_no_plugins": 0.94
+    },
+    {
+      "plugins": "10 no-op",
+      "op": "save",
+      "us_per_op": 3092.5,
+      "vs_no_plugins": 1.02
+    },
+    {
+      "plugins": "10 no-op",
+      "op": "get",
+      "us_per_op": 425.7,
+      "vs_no_plugins": 1.01
+    },
+    {
+      "plugins": "timestamps+revision",
+      "op": "insert",
+      "us_per_op": 3077.7,
+      "vs_no_plugins": 1.23
+    }
+  ],
+  "notes": [
+    "Each operation is one round trip to MongoDB, which dominates; plugin calls are in-process."
+  ],
+  "conclusion": ""
+}

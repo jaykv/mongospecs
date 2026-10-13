@@ -12,41 +12,41 @@ was established: **docs** means it was re-read in the Mongoose documentation for
 
 | Mongoose | mongospecs | Covered by | Source |
 |---|---|---|---|
-| Change tracking, delta `save()`, `isNew`, `modifiedPaths()` | snapshot at load; `save()` sends the diff; `doc.is_new`, `doc.changes()` | `test_crud.py::test_save_new_then_delta`, `test_tracking_tx.py` | memory |
+| Change tracking, delta `save()`, `isNew`, `modifiedPaths()` | snapshot at load; `save()` sends the diff; `doc.is_new`, `doc.changes()` | `test_crud.py::test_save_new_then_delta`, `test_tracking_tx.py` | docs |
 | `lean()` | `.lean()` (models, untracked), `.raw()` (dicts) | `test_crud.py::test_read_modes` | docs |
-| `Model.hydrate()` | `Model.hydrate(raw)` | `test_crud.py::test_hydrate_and_collection_escape_hatch` | memory |
+| `Model.hydrate()` | `Model.hydrate(raw)` | `test_crud.py::test_hydrate_and_collection_escape_hatch` | docs |
 | Middleware: document, query, aggregate, model | document hooks; `on_insert`/`on_update`/`on_filter`/`on_delete`; `on_pipeline`; `before_bulk`/`after_bulk` | `test_plugins_hooks.py` | docs |
-| `schema.plugin()`, `mongoose.plugin()` | marker plugins, `SpecConfig(plugins=)`, `Registry(plugins=)` | `test_plugins_hooks.py::test_registry_level_plugin_applies_to_every_model` | memory |
-| `timestamps` | `CreatedAt`, `UpdatedAt` | `test_plugins_hooks.py::test_timestamps_on_every_write_path` | memory |
+| `schema.plugin()`, `mongoose.plugin()` | marker plugins, `SpecConfig(plugins=)`, `Registry(plugins=)` | `test_plugins_hooks.py::test_registry_level_plugin_applies_to_every_model` | docs |
+| `timestamps` | `CreatedAt`, `UpdatedAt` | `test_plugins_hooks.py::test_timestamps_on_every_write_path` | docs |
 | `optimisticConcurrency`, `versionKey` | `Revision` | `test_plugins_hooks.py::test_revision_increments_everywhere` | docs |
 | `populate()` with `match`, `select`, `options`, `perDocumentLimit`, nested paths | `include()` with `match`, `select`, `sort`, `limit`, `per_parent_limit`, dotted paths | `test_relations.py` | docs |
 | Virtual populate (`localField`/`foreignField`, `count`) | `Backref(...)`, `Backref(..., count=True)` | `test_relations.py::test_backrefs_and_counts` | docs |
-| `refPath` | `Ref[A \| B]` | `test_relations.py::test_polymorphic_reference` | memory |
+| `refPath` | `Ref[A \| B]` | `test_relations.py::test_polymorphic_reference` | docs |
 | Discriminators | `SpecConfig(discriminator=...)` | `test_models_misc.py::test_discriminators_share_a_collection` | docs |
-| Query casting | values cast to the field type | `test_expr.py::test_values_are_cast_to_field_types` | memory |
+| Query casting | values cast to the field type | `test_expr.py::test_values_are_cast_to_field_types` | docs |
 | `strictQuery: 'throw'` | always: unknown fields raise | `test_expr.py::test_field_names_are_translated_and_checked` | docs |
-| `sanitizeFilter`, `trusted()` | raw filters untrusted unless `trusted()` | `test_expr.py::test_untrusted_mappings_and_operator_injection` | memory |
+| `sanitizeFilter`, `trusted()` | raw filters untrusted unless `trusted()` | `test_expr.py::test_untrusted_mappings_and_operator_injection` | docs |
 | `select: false` | `Deferred` | `test_crud.py::test_deferred_field_is_not_loaded_or_clobbered` | docs |
-| `immutable` | `Immutable` | `test_updates.py::test_immutable_and_required_fields_are_protected` | memory |
+| `immutable` | `Immutable` | `test_updates.py::test_immutable_and_required_fields_are_protected` | docs |
 | `alias` | `Alias("x")` | `test_codec.py::test_alias_and_transient_fields` | memory |
-| Query helpers | `@Model.scope` | `test_plugins_hooks.py::test_named_scopes` | memory |
-| `orFail()` | `.or_fail()`, `.one()` | `test_crud.py::test_find_all_first_one_and_or_fail` | memory |
-| `cursor()`, `eachAsync({parallel})` | `async for`, `.each(fn, concurrency=n)` | `test_crud.py::test_each_with_concurrency` | memory |
+| Query helpers | `@Model.scope` | `test_plugins_hooks.py::test_named_scopes` | docs |
+| `orFail()` | `.or_fail()`, `.one()` | `test_crud.py::test_find_all_first_one_and_or_fail` | docs |
+| `cursor()`, `eachAsync({parallel})` | `async for`, `.each(fn, concurrency=n)` | `test_crud.py::test_each_with_concurrency` | docs |
 | `bulkWrite`, `bulkSave`, `insertMany({ordered: false})` | `bulk_write`, `bulk_save`, `insert_many(ordered=False)` | `test_bulk_pagination.py` | docs |
 | `Connection.transaction(fn)` resets document state on abort | `registry.transaction(fn)` does the same, also before each retry | `test_tracking_tx.py::test_transaction_abort_rolls_back_database_and_memory` | docs |
-| `syncIndexes`, `diffIndexes`, `autoIndex: false` | `plan_indexes`, `apply_indexes(drop=...)`; never automatic | `test_indexes.py` | memory |
+| `syncIndexes`, `diffIndexes`, `autoIndex: false` | `plan_indexes`, `apply_indexes(drop=...)`; never automatic | `test_indexes.py` | docs |
 | `shardKey` | `SpecConfig(shard_key=...)` | `test_streams_sharded.py::test_shard_key_is_added_to_document_writes` | docs |
 | `createConnection`, `useDb` | several registries; `Model.using(db=...)` | `test_models_misc.py::test_using_another_database` | memory |
 | `maxTimeMS`, `hint`, `comment`, `collation`, read/write concern | `.options(...)`, `SpecConfig`, `Registry(max_time_ms=)` | `test_registry_errors.py::test_default_max_time_ms_from_registry_and_model` | memory |
-| `Model.aggregate()`, `Model.collection` | `Model.aggregate(pipeline, as_=)`, `Model.collection()` | `test_crud.py::test_aggregate_decodes_and_explain` | memory |
-| `mongoose.set('debug')` | `Registry(on_command=...)` with logging, OpenTelemetry, Sentry listeners | `test_registry_errors.py::test_command_events_carry_model_and_operation` | memory |
-| `Model.watch()` | `Model.watch()` | `test_streams_sharded.py::test_change_stream_events` | memory |
+| `Model.aggregate()`, `Model.collection` | `Model.aggregate(pipeline, as_=)`, `Model.collection()` | `test_crud.py::test_aggregate_decodes_and_explain` | docs |
+| `mongoose.set('debug')` | `Registry(on_command=...)` with logging, OpenTelemetry, Sentry listeners | `test_registry_errors.py::test_command_events_carry_model_and_operation` | docs |
+| `Model.watch()` | `Model.watch()` | `test_streams_sharded.py::test_change_stream_events` | docs |
 | `exists`, `countDocuments`, `estimatedDocumentCount` | `exists`, `count`, `estimated_count` | `test_crud.py::test_count_exists_ids_estimated` | memory |
-| Capped, time-series, TTL options | `SpecConfig(collection_options=)`, `Index(ttl=)` | `test_indexes.py::test_collection_options_are_applied` | memory |
+| Capped, time-series, TTL options | `SpecConfig(collection_options=)`, `Index(ttl=)` | `test_indexes.py::test_collection_options_are_applied` | docs |
 | Subdocuments, arrays of subdocuments, Maps | nested models, `list[T]`, `dict[str, T]`; tracked through the parent | `test_crud.py::test_nested_document_diff_uses_dotted_paths` | memory |
 | Getters, setters, custom validators | your backend's converters and validators | `test_codec.py::test_validate_field_runs_the_models_own_validators` | memory |
 | Virtuals | Python properties; `@computed` to include one in API output | `packages/mongospecs-web/tests/test_mongo_resource.py` | memory |
-| Statics and methods | classmethods and methods | (plain Python) | memory |
+| Statics and methods | classmethods and methods | (plain Python) | docs |
 
 ## Deliberate differences
 
@@ -65,6 +65,8 @@ was established: **docs** means it was re-read in the Mongoose documentation for
 | `transactionAsyncLocalStorage` offers an ambient session | Sessions are always passed explicitly | Tasks spawned inside a transaction would silently share one session |
 | Populated paths replace the id with the document | A `Ref` keeps `.id` and gains `.doc` | One type whether or not it is loaded |
 | Arrays are tracked per element | A changed list is sent whole | Per-element intent is expressed with atomic operators |
-| A document's delete is not version-checked | Soft delete and `save()` are revision-checked; hard delete is not | Recorded as a known gap |
+| `Model.watch()` errors out when it loses the primary | The change stream resumes across a step-down (the driver's behaviour, verified by a stress scenario) | Consumers should not need their own reconnect loop |
+| `syncIndexes()` drops every undeclared index | `apply_indexes()` only drops or recreates with `drop=True` | Dropping an index is not something a deploy should do by accident |
+| `orFail()` on an update throws when nothing was modified | `Model.update` raises when nothing matched; `find(...).update(...)` returns the matched and modified counts | A no-op update that matched is not an error |
 | `populate()` always runs a separate query per path | `include()` does the same by default and can use `$lookup` instead (`strategy="lookup"`) | Both give the same result; the faster one depends on fan-out, see the benchmarks |
 | `limit` in `populate()` is applied across all parents unless `perDocumentLimit` is used | `limit` is overall, `per_parent_limit` is per parent, without one query per parent | Same two meanings, named for what they do |

@@ -75,6 +75,13 @@ mongospecs raises its own errors and keeps the driver error as `__cause__`.
 | `OperationTimeout`, `ConnectionFailed`, `PoolTimeout` | the database is slow or unreachable |
 | `DocumentTooLarge` | a document or pipeline result exceeded 16MB |
 
+## One registry per model, or explicit managers
+
+`Model.find()` and the other class methods use the registry the model is bound to, and a model
+class can be bound to only one open registry at a time. When you need the same model on several
+registries, or one registry per thread, ask the registry for a manager instead:
+`registry.manager(Article).find(...)`. Documents loaded through a manager are saved through it.
+
 ## More than one database
 
 ```python

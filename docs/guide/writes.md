@@ -50,6 +50,11 @@ await article.save()
 assert article.changes() == {} and article.rev == 1
 ```
 
+A document you did not get from a tracked read has no snapshot: a `lean()` result, a
+`copy.copy()` or a deep copy of a tracked document, or one that was unpickled. Saving one tries to
+insert it and fails with a `DuplicateKeyError` that says so. Use a tracked read, or
+`Model.hydrate(raw)` to adopt a raw document.
+
 Nested documents are diffed into dotted paths. A changed list is sent whole; for element-level
 changes that must not overwrite concurrent writers, use the atomic operators below.
 
@@ -114,6 +119,13 @@ assert (await Article.find(Q.title == "bulk 0").one()).views == 6
 
 `insert_many(..., ordered=False)` attempts every document and reports failures per item instead of
 raising on the first.
+
+The writes in a `bulk_save` are independent. If some fail (a duplicate key, a revision that moved
+on), the rest are still written and are in sync in memory; the error raised afterwards lists the
+documents that were not written in `.failed`.
+
+`Model.find(...).update(...)` returns the number of documents modified, as an `int` that also
+carries `.matched` and `.modified`.
 
 ## Transactions
 

@@ -124,8 +124,26 @@ await registry.close()
 ?sort=-views,title
 ?limit=20&after=<cursor>     cursor pagination (default)
 ?limit=20&page=3             offset pagination, with page=Offset(...)
-?total=true                  also count all matches
+?total=true                  also count all matches, with page=Cursor(total=True)
 ?include=author              embed allowlisted relations
 ```
 
 Only fields and operators the policy allows are accepted; everything else is a 400.
+
+## Limits and defaults
+
+These are set so that a client cannot make the server do unbounded work.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `Api(max_body=...)` | 1 MiB | Larger request bodies get a 413. The body is never buffered past the limit, on any plug |
+| `Cursor(max=...)`, `Offset(max=...)` | 100 | Largest page a client can ask for |
+| `Offset(max_offset=...)` | 10,000 | How many documents a page may skip; deeper pages get a 400 |
+| `Cursor(total=...)`, `Offset(total=...)` | `False` | Whether `?total=true` is allowed (a count is a second query over every match) |
+| `MongoBackend(max_time_ms=...)` | 10 s | Time limit for reads made for a request, when the registry and the model set none |
+| `Api(openapi=...)` | `True` | Serve `<prefix>/openapi.json`; turn off to keep the description private |
+| `Resource(explicit_writes=...)` | `False` | When `True`, a field is writable only if its `Policy` says `insert=True` / `update=True` |
+
+`DELETE` honours `If-Match` like `PATCH`, and the row scope is part of the delete's own filter.
+`HEAD` and `OPTIONS` are answered by `api.handle` and the pure ASGI plug; the framework plugs leave
+them to the framework.

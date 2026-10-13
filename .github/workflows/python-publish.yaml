@@ -11,7 +11,20 @@ permissions:
   contents: read
 
 jobs:
+  verify:
+    # Nothing is published from a commit that does not pass the checks.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: make up
+      - run: uv sync --all-packages --python 3.13
+      - run: make lint
+      - run: make types
+      - run: uv run pytest
+
   publish:
+    needs: verify
     runs-on: ubuntu-latest
     environment:
       name: pypi

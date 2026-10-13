@@ -876,6 +876,11 @@ Recorded per §7.1 rule 4. Each one names what changed and why; none invalidates
 | A22 | §6 | Workload B7 (HTTP per plug) is the `LOAD` workload: a real server process under load, with server CPU per request as the primary metric | Measuring plugs through an in-process test client, and later through httpx over TCP, measured the client |
 | A23 | §4.5 | An upsert gives the inserted document the model's non-null defaults through `$setOnInsert` | Otherwise a document created by upsert differs in shape from one created by `insert()` and queries on defaulted values miss it (Mongoose: `setDefaultsOnInsert`) |
 | A24 | §4.2 | Subclass discovery ignores stale class copies | `attrs.define` replaces a class with a slotted copy and the original lingers until collected; found by the free-threaded CI job |
+| A25 | §4.2 | The `Computed` marker became the `@computed` property decorator | A marker goes on an annotation; a computed value is a property and has none |
+| A26 | §4.6 | Atlas Search and vector search indexes are not in 0.2. `Index` covers ordinary, compound, text, geospatial, TTL, partial and collated indexes | They need Atlas (or a `mongot` deployment) to create and to test; nothing here could verify them. Declared out of scope rather than shipped untested |
+| A27 | §4.3 | A8 is superseded: deleting a loaded document checks its revision on hard deletes as well, and `delete(if_rev=)` / HTTP `If-Match` on DELETE are supported | Raised in review |
+| A28 | §4.8 | Web defaults changed after review: totals are opt-in per resource, offset pages are capped by `max_offset`, request reads get a 10s time limit when nothing else sets one, bodies are size-limited while being read on every plug, the row scope is part of the DELETE filter, `Api(openapi=False)` and `Resource(explicit_writes=True)` exist | Raised in review |
+| A29 | §4.5 | `bulk_save` writes are independent: successes are brought in sync in memory and the error lists the failures. `Query.update()` returns an int carrying `.matched` and `.modified`. Cursor pagination always fetches its sort keys. Cascades carry a visited set and work in chunks | Defects reproduced in review, each with a regression test |
 
 New node:
 
@@ -899,3 +904,20 @@ server errors were not logged anywhere.
 | D1 | No Rust in 0.2. The only candidate worth a native component is a BSON-to-model decoder for bulk reads, as a separate optional package behind `Codec.decode(bytes)` | BSON-to-dict is essentially all of the driver's time on bulk reads (10.1 us per nested document against 3.3 us for msgspec's dict-to-model step) but an estimated 10-20% of server CPU on request-sized reads. Needs Jay's call on whether bulk reads matter enough |
 | Open decision 4 | Reads validate; the `trusted` option is removed | Measured slower than validating on pydantic, no effect elsewhere |
 | Open decision 6 | Tracked stays the default read mode | 0-15% over lean and about 1.2 KB per document after the raw-BSON snapshot change |
+
+### Review of the pull requests (2026-10-13)
+
+A second session reviewed #6-#8 and reproduced five defects (duplicate pages with `select()`, a bare-id
+`Location` header, `bulk_save` leaving memory out of sync, `bulk_write` skipping cascades, an unhelpful
+error when saving a copy). All five are fixed with regression tests, along with an infinite recursion on
+cyclic cascades found while reproducing them. Its read-only findings on the web layer are addressed in A28.
+
+Known and not changed:
+
+- `registry._BINDINGS` and `tracking._states` are process-global. `Model.find()` resolves the registry a
+  model is bound to, so one model class cannot be bound to two open registries at once; code that needs
+  several registries or one registry per thread uses `registry.manager(Model)`. A task-scoped "current
+  registry" was suggested and is not built.
+- S7 (confirming every Mongoose parity row against its documentation) is done for 28 of 35 rows;
+  `docs/parity.md` marks the 7 that are still from memory (alias, `useDb`, per-query driver options,
+  `exists`/counts, subdocuments and maps, getters/setters, virtuals).
